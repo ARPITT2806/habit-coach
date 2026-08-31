@@ -13,8 +13,14 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "North — Adaptive habit coach",
+  title: "North – Adaptive habit coach",
   description: "Learn why habits fail, then adapt them with your consent.",
+  applicationName: "North",
+  appleWebApp: {
+    capable: true,
+    title: "North",
+    statusBarStyle: "default",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
