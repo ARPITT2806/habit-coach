@@ -24,7 +24,7 @@ export function RecommendationCard({
           type="button"
           className="btn-primary flex-1"
           disabled={pending}
-          onClick={() => start(() => resolveRecommendation(id, true))}
+          onClick={() => start(() => { void resolveRecommendation(id, true); })}
         >
           Accept change
         </button>
@@ -32,7 +32,7 @@ export function RecommendationCard({
           type="button"
           className="btn-ghost flex-1"
           disabled={pending}
-          onClick={() => start(() => resolveRecommendation(id, false))}
+          onClick={() => start(() => { void resolveRecommendation(id, false); })}
         >
           Keep current
         </button>

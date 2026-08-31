@@ -10,7 +10,7 @@ export function AnalyzeButton() {
       type="button"
       className="btn-primary w-full"
       disabled={pending}
-      onClick={() => start(() => refreshCoach())}
+      onClick={() => start(() => { void refreshCoach(); })}
     >
       {pending ? "Reading your patterns…" : "Analyze my habits"}
     </button>
