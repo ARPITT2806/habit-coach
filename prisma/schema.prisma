@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  passwordHash    String
+  name            String?
+  onboardedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  goals           Goal[]
+  habits          Habit[]
+  completions     HabitCompletion[]
+  checkIns        CheckIn[]
+  insights        AiInsight[]
+  recommendations AiRecommendation[]
+}
+
+model Goal {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  habits    Habit[]
+}
+
+model Habit {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goalId            String?
+  goal              Goal?    @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  title             String
+  why               String?
+  frequencyPerWeek  Int
+  daysOfWeek        String
+  preferredTime     String
+  difficulty        String
+  targetDurationMin Int?
+  targetQuantity    Int?
+  unit              String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  completions       HabitCompletion[]
+  recommendations   AiRecommendation[]
+}
+
+model HabitCompletion {
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habitId              String
+  habit                Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  date                 String
+  status               String
+  reason               String?
+  reasonOther          String?
+  preferredTimeAtLog   String?
+  loggedAt             DateTime @default(now())
+  createdAt            DateTime @default(now())
+
+  @@unique([habitId, date])
+  @@index([userId, date])
+}
+
+model CheckIn {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      String
+  mood      Int
+  blocker   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+}
+
+model AiInsight {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String
+  content   String
+  evidence  String
+  createdAt DateTime @default(now())
+}
+
+model AiRecommendation {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habitId    String?
+  habit      Habit?    @relation(fields: [habitId], references: [id], onDelete: SetNull)
+  type       String
+  status     String    @default("pending")
+  title      String
+  rationale  String
+  evidence   String
+  payload    String
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+}

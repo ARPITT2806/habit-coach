@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f4f0e8;
+  --card: #fbf8f2;
+  --ink: #1f1b16;
+  --muted: #6f675e;
+  --line: #e4ddd2;
+  --accent: #3f5348;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-sand: #efe8dc;
+  --color-accent: var(--accent);
+  --font-sans: var(--font-outfit);
+  --font-serif: var(--font-fraunces);
+}
+
+html {
+  background: var(--paper);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.font-serif {
+  font-family: var(--font-serif), Georgia, serif;
+  font-weight: 400;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 0.75rem 1.15rem;
+  font-size: 0.95rem;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  padding: 0.75rem 1.15rem;
+  font-size: 0.95rem;
+}
+
+.field {
+  margin-top: 0.4rem;
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  padding: 0.75rem 0.9rem;
+  color: var(--ink);
+}
+
+.field:focus,
+.btn-primary:focus-visible,
+.btn-ghost:focus-visible,
+a:focus-visible,
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
