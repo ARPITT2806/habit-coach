@@ -1,15 +1,13 @@
-import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+"use client";
 
-export default async function OnboardingLayout({
+export default function OnboardingLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getSession();
-  if (!session) redirect("/login");
-  const user = await prisma.user.findUnique({ where: { id: session.id } });
-  if (user?.onboardedAt) redirect("/today");
-  return children;
+  return (
+    <main className="mx-auto min-h-screen max-w-lg px-5 py-8">
+      {children}
+    </main>
+  );
 }

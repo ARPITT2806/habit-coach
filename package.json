@@ -7,12 +7,18 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:setup": "prisma migrate dev --name init && prisma db seed"
+    "db:setup": "prisma migrate dev --name init && prisma db seed",
+    "dev:phone": "next dev --hostname 0.0.0.0",
+    "build:android": "NEXT_STATIC_EXPORT=1 next build && npx cap sync android"
   },
   "prisma": {
     "seed": "node prisma/seed.cjs"
   },
   "dependencies": {
+    "@capacitor-community/sqlite": "^8.1.1",
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
     "@prisma/client": "6.19.3",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.10",
