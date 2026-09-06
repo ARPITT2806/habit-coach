@@ -9,7 +9,7 @@ const config: CapacitorConfig = {
   ...(isDev
     ? {
         server: {
-          url: 'http://192.168.29.20:3000',
+          url: 'http://192.168.29.231:3000',
           cleartext: true,
         },
       }
