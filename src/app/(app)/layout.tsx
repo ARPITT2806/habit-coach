@@ -14,15 +14,29 @@ export default function AppLayout({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let alive = true;
+
     getLocalUser()
-      .then(setUser)
-      .finally(() => setLoading(false));
+      .then((localUser) => {
+        if (alive) setUser(localUser);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
   if (loading) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-lg items-center justify-center px-5">
-        <p className="text-sm text-muted">Loading Habit Flow...</p>
+      <main className="flex min-h-screen items-center justify-center px-5">
+        <div
+          className="h-12 w-12 animate-pulse rounded-3xl bg-accent-soft"
+          style={{ animationDuration: "1.4s" }}
+        />
+        <p className="sr-only">Loading Habit Coach...</p>
       </main>
     );
   }
@@ -32,18 +46,19 @@ export default function AppLayout({
   }
 
   return (
-    <div className="mx-auto flex min-h-full max-w-lg flex-col px-5 pb-28 pt-8">
-      <header className="mb-8 flex items-center justify-between">
-        <p className="text-xs uppercase tracking-[0.22em] text-muted">
-          Habit Flow
-        </p>
+    <div className="relative mx-auto min-h-screen w-full max-w-lg">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed left-1/2 top-[-120px] z-0 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-accent/10 blur-3xl"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed right-[-90px] top-40 z-0 h-[220px] w-[220px] rounded-full bg-mint/10 blur-3xl"
+      />
 
-        <p className="text-xs text-muted">
-          {user.name || "Your day"}
-        </p>
-      </header>
-
-      <div className="flex-1">{children}</div>
+      <div className="relative z-10 flex min-h-screen flex-col px-6 pb-36 pt-8">
+        <div className="flex-1">{children}</div>
+      </div>
 
       <AppNav />
     </div>

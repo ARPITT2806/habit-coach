@@ -92,7 +92,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
 
       <SubmitButton className="btn-primary w-full">
         {pending
-          ? "Opening Habit Flow…"
+          ? "Opening Habit Coach…"
           : mode === "login"
             ? "Continue"
             : "Create account"}

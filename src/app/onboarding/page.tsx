@@ -21,7 +21,9 @@ export default function OnboardingPage() {
   const [why, setWhy] = useState("");
   const [frequency, setFrequency] = useState("3");
   const [preferredTime, setPreferredTime] = useState("08:00");
-  const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">(    (DIFFICULTIES[1]?.id ?? DIFFICULTIES[0]?.id ?? "medium") as "easy" | "medium" | "hard",  );
+  const [difficulty, setDifficulty] = useState<string>(
+    DIFFICULTIES[1]?.id ?? DIFFICULTIES[0]?.id ?? "medium",
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -62,7 +64,7 @@ export default function OnboardingPage() {
           defaultDaysForFrequency(Number(frequency)),
         ),
         preferredTime,
-        difficulty,
+        difficulty: difficulty as "easy" | "medium" | "hard",
       });
 
       await markLocalUserOnboarded();
@@ -70,34 +72,31 @@ export default function OnboardingPage() {
       router.replace("/today");
     } catch (err) {
       console.error(err);
-      setError("Something went wrong while setting up Habit Flow.");
+      setError("Something went wrong while setting up Habit Coach.");
       setSaving(false);
     }
   }
 
   return (
-    <main className="mx-auto max-w-lg">
-      <div className="mb-10">
-        <p className="mb-3 text-xs uppercase tracking-[0.22em] text-muted">
-          Habit Flow
-        </p>
-
-        <h1 className="text-3xl font-medium tracking-tight">
+    <div className="animate-rise">
+      <header className="mb-8 px-1">
+        <p className="overline">Habit Coach</p>
+        <h1 className="mt-3 font-serif text-[2.1rem] leading-[1.12] tracking-tight text-ink">
           Build a habit that fits your life.
         </h1>
-
         <p className="mt-3 text-sm leading-6 text-muted">
-          Start with one habit. We&apos;ll help you make it sustainable.
+          Start with one habit. We&apos;ll help you make it sustainable — and
+          everything stays on this device.
         </p>
-      </div>
+      </header>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="card space-y-6 p-6 sm:p-7">
         <label className="block text-sm text-muted">
           What is your main goal?
           <input
             value={goal}
             onChange={(event) => setGoal(event.target.value)}
-            className="field mt-2 w-full"
+            className="field"
             placeholder="Get healthier"
             required
           />
@@ -108,17 +107,14 @@ export default function OnboardingPage() {
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            className="field mt-2 w-full"
+            className="field"
             placeholder="Walk for 20 minutes"
             required
           />
         </label>
 
         <fieldset>
-          <legend className="mb-3 text-sm text-muted">
-            How often?
-          </legend>
-
+          <legend className="mb-3 text-sm text-muted">How often?</legend>
           <div className="grid grid-cols-4 gap-2">
             {[
               ["2", "2×"],
@@ -128,7 +124,11 @@ export default function OnboardingPage() {
             ].map(([value, label]) => (
               <label
                 key={value}
-                className="cursor-pointer rounded-2xl border border-line px-3 py-3 text-center text-sm has-[:checked]:border-ink has-[:checked]:bg-sand"
+                className={`cursor-pointer rounded-2xl border px-3 py-3 text-center text-sm transition-colors ${
+                  frequency === value
+                    ? "border-transparent bg-accent-soft text-accent"
+                    : "border-line bg-surface text-ink"
+                }`}
               >
                 <input
                   type="radio"
@@ -150,7 +150,7 @@ export default function OnboardingPage() {
             type="time"
             value={preferredTime}
             onChange={(event) => setPreferredTime(event.target.value)}
-            className="field mt-2 w-full"
+            className="field"
             required
           />
         </label>
@@ -159,12 +159,15 @@ export default function OnboardingPage() {
           <legend className="mb-3 text-sm text-muted">
             How difficult should this feel?
           </legend>
-
           <div className="flex gap-2">
-            {DIFFICULTIES.map((item, index) => (
+            {DIFFICULTIES.map((item) => (
               <label
                 key={item.id}
-                className="flex-1 cursor-pointer rounded-2xl border border-line px-3 py-3 text-center text-sm has-[:checked]:border-ink has-[:checked]:bg-sand"
+                className={`flex-1 cursor-pointer rounded-2xl border px-3 py-3 text-center text-sm transition-colors ${
+                  difficulty === item.id
+                    ? "border-transparent bg-accent-soft text-accent"
+                    : "border-line bg-surface text-ink"
+                }`}
               >
                 <input
                   type="radio"
@@ -187,13 +190,13 @@ export default function OnboardingPage() {
             onChange={(event) => setWhy(event.target.value)}
             required
             rows={3}
-            className="field mt-2 w-full"
+            className="field"
             placeholder="I want more energy."
           />
         </label>
 
         {error && (
-          <p className="text-sm text-red-600" role="alert">
+          <p className="text-sm font-medium text-rose" role="alert">
             {error}
           </p>
         )}
@@ -205,7 +208,11 @@ export default function OnboardingPage() {
         >
           {saving ? "Setting up..." : "Start tracking"}
         </button>
+
+        <p className="text-center text-xs text-muted">
+          Data stays on this device. Nothing is uploaded.
+        </p>
       </form>
-    </main>
+    </div>
   );
 }

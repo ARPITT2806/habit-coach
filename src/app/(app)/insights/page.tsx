@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { EmptyState } from "@/components/states";
+import { Chip, ProgressRing } from "@/components/ui";
 import { FAILURE_REASONS } from "@/lib/constants";
 import {
   getCompletions,
@@ -10,20 +12,6 @@ import {
   type LocalHabit,
 } from "@/lib/local/habits";
 import { getLocalUser } from "@/lib/local/session";
-
-type StatProps = {
-  label: string;
-  value: string;
-};
-
-function Stat({ label, value }: StatProps) {
-  return (
-    <div className="rounded-3xl border border-line bg-paper p-5">
-      <p className="text-xs uppercase tracking-[0.16em] text-muted">{label}</p>
-      <p className="mt-3 text-xl font-medium text-ink">{value}</p>
-    </div>
-  );
-}
 
 function dateKey(date: Date): string {
   const year = date.getFullYear();
@@ -120,6 +108,32 @@ function habitConsistency(
   };
 }
 
+function StatCard({
+  label,
+  value,
+  detail,
+  className,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  className: string;
+}) {
+  return (
+    <div className={`rounded-4xl border p-5 shadow-soft ${className}`}>
+      <p className="overline">{label}</p>
+      <p className="mt-2 text-xl font-bold tracking-tight text-ink">{value}</p>
+      {detail ? <p className="mt-1 text-xs text-muted">{detail}</p> : null}
+    </div>
+  );
+}
+
+function habitRowTone(rate: number): string {
+  if (rate >= 80) return "bg-mint-soft text-mint";
+  if (rate >= 50) return "bg-amber-soft text-amber";
+  return "bg-rose-soft text-rose";
+}
+
 export default function InsightsPage() {
   const [habits, setHabits] = useState<LocalHabit[]>([]);
   const [completions, setCompletions] = useState<LocalCompletion[]>([]);
@@ -127,7 +141,9 @@ export default function InsightsPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    async function load() {
+    let alive = true;
+
+    (async () => {
       try {
         const user = await getLocalUser();
 
@@ -136,17 +152,20 @@ export default function InsightsPage() {
           getCompletions(user.id),
         ]);
 
-        setHabits(localHabits);
-        setCompletions(localCompletions);
-      } catch (err) {
-        console.error(err);
-        setError("Could not load your insights.");
+        if (alive) {
+          setHabits(localHabits);
+          setCompletions(localCompletions);
+        }
+      } catch {
+        if (alive) setError("Could not load your insights.");
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
-    }
+    })();
 
-    void load();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const days7 = useMemo(
@@ -267,10 +286,15 @@ export default function InsightsPage() {
     };
   }, [habits, completions]);
 
-  if (loading) {
+  if (loading && habits.length === 0) {
     return (
-      <main>
-        <p className="text-sm text-muted">Loading your pattern...</p>
+      <main className="space-y-4" aria-label="Loading insights">
+        <div className="h-12 animate-pulse rounded-3xl bg-surface-2" />
+        <div className="h-40 animate-pulse rounded-4xl bg-surface-2" />
+        <div className="grid grid-cols-2 gap-4">
+          <div className="h-28 animate-pulse rounded-4xl bg-surface-2" />
+          <div className="h-28 animate-pulse rounded-4xl bg-surface-2" />
+        </div>
       </main>
     );
   }
@@ -278,69 +302,89 @@ export default function InsightsPage() {
   if (error) {
     return (
       <main>
-        <p className="text-sm text-muted">{error}</p>
+        <EmptyState
+          title="Couldn’t load your pattern"
+          body={error}
+        />
       </main>
     );
   }
 
   if (completions.length === 0) {
     return (
-      <main>
-        <h1 className="font-serif text-4xl">Your pattern</h1>
-        <p className="mt-2 text-sm text-muted">
-          Insights stay empty until there is real behavior to measure.
-        </p>
-
-        <div className="mt-8 rounded-3xl border border-line bg-paper p-5">
-          <p className="text-sm leading-6 text-muted">
-            Complete, skip, or miss a few habits and come back here. Your
-            numbers will be calculated from your own local logs.
+      <main className="pb-6">
+        <header className="animate-rise">
+          <p className="overline">Insights</p>
+          <h1 className="mt-2 font-serif text-[2rem] leading-tight tracking-tight text-ink">
+            Your pattern
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Insights stay empty until there is real behavior to measure.
           </p>
+        </header>
+
+        <div className="mt-6">
+          <EmptyState
+            title="No behavior yet"
+            body="Complete, skip, or miss a few habits and come back here. Your numbers are calculated from your own local logs."
+          />
         </div>
       </main>
     );
   }
 
   return (
-    <main>
-      <h1 className="font-serif text-4xl">Your pattern</h1>
-      <p className="mt-2 text-sm text-muted">
-        Only numbers from your own logs.
-      </p>
+    <main className="pb-6">
+      <header className="animate-rise">
+        <p className="overline">Insights</p>
+        <h1 className="mt-2 font-serif text-[2rem] leading-tight tracking-tight text-ink">
+          Your pattern
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          Only numbers from your own logs — this never leaves the device.
+        </p>
+      </header>
 
-      <div className="mt-8 grid grid-cols-2 gap-3">
-        <Stat label="7-day consistency" value={`${days7.rate}%`} />
-        <Stat label="30-day consistency" value={`${days30.rate}%`} />
-        <Stat
+      <section className="animate-rise rise-delay-1 mt-6 flex items-center gap-5 rounded-4xl border border-sky/20 bg-sky-soft p-5 shadow-lift sm:p-6">
+        <ProgressRing value={days7.rate} size={74} stroke={8} trackClass="text-white">
+          <p className="text-sm font-bold text-ink">{days7.rate}%</p>
+        </ProgressRing>
+        <div className="min-w-0">
+          <p className="overline text-sky">7-day consistency</p>
+          <p className="mt-2 text-lg font-bold tracking-tight text-ink">
+            {days7.scheduled > 0
+              ? `${days7.completed} of ${days7.scheduled} scheduled`
+              : "Nothing scheduled yet"}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-muted">
+            The last 7 days, mapped against your schedule.
+          </p>
+        </div>
+      </section>
+
+      <section className="mt-4 grid grid-cols-2 gap-4">
+        <StatCard
+          label="30-day rhythm"
+          value={`${days30.rate}%`}
+          detail={`${days30.completed} completed`}
+          className="border-mint/20 bg-mint-soft"
+        />
+        <StatCard
           label="Best time"
-          value={bestTime ? `${bestTime}:00` : "Not enough data"}
+          value={bestTime ? `${bestTime}:00` : "Not enough"}
+          detail={bestTime ? "when you’re most consistent" : "3 completions needed"}
+          className="border-peach/20 bg-peach-soft"
         />
-        <Stat
+      </section>
+
+      <section className="mt-4 grid grid-cols-2 gap-4">
+        <StatCard
           label="Common miss"
-          value={failure ? failure.label : "Not enough data"}
+          value={failure ? failure.label : "Not enough"}
+          detail={failure ? "keep an eye on this one" : "2 misses needed"}
+          className="border-rose/20 bg-rose-soft"
         />
-      </div>
-
-      <div className="mt-3 space-y-3">
-        <Stat
-          label="Strongest habit"
-          value={
-            strongest
-              ? `${strongest.habit.title} — ${strongest.days30.rate}%`
-              : "Not enough data"
-          }
-        />
-
-        <Stat
-          label="Weakest habit"
-          value={
-            weakest
-              ? `${weakest.habit.title} — ${weakest.days30.rate}%`
-              : "Not enough data"
-          }
-        />
-
-        <Stat
+        <StatCard
           label="Recent trend"
           value={
             trend
@@ -348,11 +392,76 @@ export default function InsightsPage() {
                 ? `Up to ${trend.recent}%`
                 : trend.direction === "down"
                   ? `Down to ${trend.recent}%`
-                  : `Steady at ${trend.recent}%`
-              : "Need two weeks"
+                  : `Steady ${trend.recent}%`
+              : "Need 2 weeks"
           }
+          detail={
+            trend
+              ? `versus ${trend.previous}% the week before`
+              : "weekly view builds with time"
+          }
+          className="border-amber/20 bg-amber-soft"
+        />
+      </section>
+
+      <section className="mt-7 space-y-3" aria-labelledby="habit-heading">
+        <h2 id="habit-heading" className="overline px-1">
+          Habit rhythm
+        </h2>
+
+        {strongest ? (
+          <SingleHabitRow
+            label="Strongest habit"
+            habit={strongest.habit.title}
+            rate={strongest.days30.rate}
+          />
+        ) : null}
+
+        {weakest ? (
+          <SingleHabitRow
+            label="Weakest habit"
+            habit={weakest.habit.title}
+            rate={weakest.days30.rate}
+          />
+        ) : null}
+      </section>
+    </main>
+  );
+}
+
+function SingleHabitRow({
+  label,
+  habit,
+  rate,
+}: {
+  label: string;
+  habit: string;
+  rate: number;
+}) {
+  return (
+    <article className="card p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="overline">{label}</p>
+          <p className="mt-1.5 truncate text-sm font-semibold text-ink">{habit}</p>
+        </div>
+        <Chip className={habitRowTone(rate)}>{rate}%</Chip>
+      </div>
+
+      <div className="mt-3.5 h-2 overflow-hidden rounded-full bg-surface-2">
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{
+            width: `${Math.max(4, rate)}%`,
+            background:
+              rate >= 80
+                ? "var(--mint)"
+                : rate >= 50
+                  ? "var(--amber)"
+                  : "var(--rose)",
+          }}
         />
       </div>
-    </main>
+    </article>
   );
 }

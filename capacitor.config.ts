@@ -3,8 +3,8 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const isDev = process.env.CAP_DEV === '1';
 
 const config: CapacitorConfig = {
-  appId: 'com.example.app',
-  appName: 'habit-coach',
+  appId: 'io.habitcoach.android',
+  appName: 'Habit Coach',
   webDir: 'out',
   ...(isDev
     ? {

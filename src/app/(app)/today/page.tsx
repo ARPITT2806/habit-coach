@@ -1,43 +1,52 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { defaultDaysForFrequency, FAILURE_REASONS, DIFFICULTIES } from "@/lib/constants";
-import { greeting, formatTime } from "@/lib/dates";
+import { EmptyState, ErrorText } from "@/components/states";
+import {
+  ArrowIcon,
+  Avatar,
+  CalendarIcon,
+  CheckIcon,
+  Chip,
+  DateStrip,
+  PlusIcon,
+  ProgressRing,
+  SparkIcon,
+  SunIcon,
+} from "@/components/ui";
+import {
+  defaultDaysForFrequency,
+  DIFFICULTIES,
+  FAILURE_REASONS,
+  parseDaysOfWeek,
+} from "@/lib/constants";
+import {
+  dateKeysInclusive,
+  formatTime,
+  greeting,
+  parseDateKey,
+  timeBucket,
+  todayKey,
+} from "@/lib/dates";
 import {
   createGoal,
   createHabit,
   getCompletions,
-  getHabits,
   getGoals,
+  getHabits,
   logHabit,
   saveCheckIn,
   type LocalCheckIn,
   type LocalCompletion,
+  type LocalGoal,
   type LocalHabit,
 } from "@/lib/local/habits";
 import { getLocalUser, type LocalUser } from "@/lib/local/session";
 
-type HabitWithLog = LocalHabit & {
-  log: LocalCompletion | null;
-};
-
-function todayKey(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function isScheduledToday(habit: LocalHabit): boolean {
-  try {
-    const days = JSON.parse(habit.daysOfWeek) as number[];
-    const weekday = new Date().getDay();
-    return days.includes(weekday);
-  } catch {
-    return true;
-  }
+function isScheduledOn(habit: LocalHabit, key: string): boolean {
+  const weekday = parseDateKey(key).getDay();
+  return parseDaysOfWeek(habit.daysOfWeek).includes(weekday);
 }
 
 function weeklyConsistency(
@@ -61,24 +70,14 @@ function weeklyConsistency(
 
       const weekday = date.getDay();
 
-      let days: number[] = [];
-      try {
-        days = JSON.parse(habit.daysOfWeek) as number[];
-      } catch {
-        days = [];
-      }
-
-      if (!days.includes(weekday)) continue;
+      if (!parseDaysOfWeek(habit.daysOfWeek).includes(weekday)) continue;
 
       scheduled += 1;
 
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, "0");
-      const day = String(date.getDate()).padStart(2, "0");
-      const dateKey = `${year}-${month}-${day}`;
+      const key = todayKey(date);
 
       const completion = completions.find(
-        (item) => item.habitId === habit.id && item.date === dateKey,
+        (item) => item.habitId === habit.id && item.date === key,
       );
 
       if (completion?.status === "completed") {
@@ -90,40 +89,185 @@ function weeklyConsistency(
   return scheduled === 0 ? 0 : Math.round((completed / scheduled) * 100);
 }
 
-function EmptyState({
-  title,
-  body,
+function difficultyTone(difficulty: string): string {
+  if (difficulty === "easy")
+    return "bg-mint-soft text-mint";
+  if (difficulty === "hard")
+    return "bg-rose-soft text-rose";
+  return "bg-amber-soft text-amber";
+}
+
+function bucketLabel(time: string): string | null {
+  const bucket = timeBucket(time);
+  if (bucket === "morning") return "Morning";
+  if (bucket === "afternoon") return "Afternoon";
+  if (bucket === "evening") return "Evening";
+  return null;
+}
+
+/* ---------- Header ---------- */
+
+function PageHeader({
+  user,
+  onAdd,
 }: {
-  title: string;
-  body: string;
+  user: LocalUser;
+  onAdd: () => void;
 }) {
+  const firstName = user.name?.split(/\s+/)[0];
+  const today = new Date();
+
   return (
-    <article className="rounded-3xl border border-line bg-paper p-5">
-      <p className="text-base text-ink">{title}</p>
-      <p className="mt-1 text-sm text-muted">{body}</p>
-    </article>
+    <header className="animate-rise flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3.5">
+        <Avatar name={user.name} size={46} className="shadow-soft" />
+        <div>
+          <p className="overline">{greeting()}</p>
+          <h1 className="mt-0.5 text-lg font-semibold tracking-tight text-ink">
+            {firstName || "Your day"}
+          </h1>
+          <p className="mt-0.5 text-xs text-muted">
+            {today.toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={onAdd}
+        className="icon-btn"
+        aria-label="Add a new habit"
+      >
+        <PlusIcon />
+      </button>
+    </header>
   );
 }
 
+/* ---------- Hero ---------- */
+
+function HeroCard({
+  goal,
+  firstName,
+  done,
+  scheduled,
+}: {
+  goal: LocalGoal | null;
+  firstName: string;
+  done: number;
+  scheduled: number;
+}) {
+  const hasPlan = scheduled > 0;
+  const title = goal?.title ?? (hasPlan ? "Show up for today" : "A gentler day");
+  const body = hasPlan
+    ? `${done} of ${scheduled} scheduled today. Finish at your own pace — consistency beats intensity.`
+    : "Nothing is scheduled today. Rest is part of the rhythm, so enjoy it.";
+
+  const subtitle = goal
+    ? `${firstName}, working toward your goal`
+    : `${firstName}, building your rhythm`;
+
+  return (
+    <section
+      className="animate-rise rise-delay-1 relative mt-6 overflow-hidden rounded-4xl bg-ink p-6 text-white shadow-lift sm:p-7"
+      aria-labelledby="today-focus"
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-accent/40 blur-3xl"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full bg-accent-2/30 blur-3xl"
+      />
+
+      <div className="relative p-6 sm:p-7">
+        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-white/60">
+          <SparkIcon size={14} />
+          Today&apos;s focus
+        </div>
+
+        <h2
+          id="today-focus"
+          className="mt-4 font-serif text-[2.1rem] leading-[1.08] tracking-tight text-white"
+        >
+          {title}
+        </h2>
+
+        <p className="mt-4 max-w-sm text-sm leading-6 text-white/70">
+          {subtitle} — {body}
+        </p>
+
+        <div className="mt-6 flex items-end justify-between gap-4">
+          <ProgressRing
+            value={scheduled === 0 ? 0 : (done / scheduled) * 100}
+            size={92}
+            stroke={9}
+            trackClass="text-white/15"
+          >
+            <div className="text-center">
+              <p className="text-lg font-bold leading-none text-white">
+                {scheduled === 0 ? "0" : `${done}/${scheduled}`}
+              </p>
+              <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-white/60">
+                done
+              </p>
+            </div>
+          </ProgressRing>
+
+          <ul className="space-y-2">
+            <li className="flex items-center gap-2.5 text-sm text-white/85">
+              <span className="h-2.5 w-2.5 rounded-full bg-mint" />
+              Completed today
+            </li>
+            <li className="flex items-center gap-2.5 text-sm text-white/70">
+              <span className="h-2.5 w-2.5 rounded-full bg-white/30" />
+              Scheduled
+            </li>
+            <li className="flex items-center gap-2.5 text-sm text-white/70">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber" />
+              Still to go
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------- Habit card ---------- */
+
+type SaveStatus = "completed" | "skipped" | "failed";
+
 function HabitCard({
   habit,
+  log,
+  isToday,
+  isUpNext,
   onSave,
 }: {
-  habit: HabitWithLog;
+  habit: LocalHabit;
+  log: LocalCompletion | null;
+  isToday: boolean;
+  isUpNext: boolean;
   onSave: (
     habitId: string,
-    status: "completed" | "skipped" | "failed",
+    status: SaveStatus,
     reason?: string,
     reasonOther?: string,
   ) => Promise<void>;
 }) {
-  const [intent, setIntent] = useState<"skipped" | "failed" | null>(null);
+  const [intent, setIntent] = useState<SaveStatus | null>(null);
   const [reason, setReason] = useState("");
   const [reasonOther, setReasonOther] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  async function save(status: "completed" | "skipped" | "failed") {
+  async function save(status: SaveStatus) {
     setError("");
 
     if (status !== "completed" && !reason) {
@@ -150,147 +294,213 @@ function HabitCard({
     }
   }
 
-  if (habit.log) {
-    const label =
-      habit.log.status === "completed"
-        ? "Completed"
-        : habit.log.status === "skipped"
-          ? "Skipped"
-          : "Missed";
+  const difficultyLabel =
+    DIFFICULTIES.find((item) => item.id === habit.difficulty)?.label ?? null;
+  const bucket = bucketLabel(habit.preferredTime);
+  const done = log?.status === "completed";
+  const skipped = log?.status === "skipped";
+  const missed = log?.status === "failed";
+  const reasonLabel = log?.reason
+    ? FAILURE_REASONS.find((item) => item.id === log.reason)?.label
+    : null;
 
-    const reasonLabel = habit.log?.reason
-      ? FAILURE_REASONS.find((item) => item.id === habit.log?.reason)?.label
-      : null;
-
-    return (
-      <article className="flex items-center justify-between gap-3 rounded-3xl border border-line bg-paper px-4 py-4">
-        <div>
-          <p className="text-base text-ink">{habit.title}</p>
-          <p className="mt-1 text-sm text-muted">
-            {label}
-            {reasonLabel ? ` · ${reasonLabel}` : ""}
-          </p>
-        </div>
-        <span className="text-sm text-muted">
-          {formatTime(habit.preferredTime)}
-        </span>
-      </article>
-    );
-  }
-
-  if (intent) {
-    return (
-      <article className="rounded-3xl border border-line bg-paper p-4">
-        <p className="text-base text-ink">
-          Why didn’t you do {habit.title}?
-        </p>
-
-        <fieldset className="mt-3 grid grid-cols-2 gap-2">
-          <legend className="sr-only">Reason</legend>
-
-          {FAILURE_REASONS.map((item) => (
-            <label
-              key={item.id}
-              className="flex cursor-pointer items-center gap-2 rounded-2xl border border-line px-3 py-2 text-sm has-[:checked]:border-ink has-[:checked]:bg-sand"
-            >
-              <input
-                type="radio"
-                name={`reason-${habit.id}`}
-                value={item.id}
-                checked={reason === item.id}
-                onChange={() => setReason(item.id)}
-                className="accent-ink"
-              />
-              {item.label}
-            </label>
-          ))}
-        </fieldset>
-
-        <label className="mt-3 block text-sm text-muted">
-          Other detail
-          <input
-            value={reasonOther}
-            onChange={(event) => setReasonOther(event.target.value)}
-            maxLength={120}
-            className="mt-1 w-full rounded-2xl border border-line bg-transparent px-3 py-2 text-ink"
-            placeholder="Optional"
-          />
-        </label>
-
-        {error ? <p className="mt-3 text-sm text-muted">{error}</p> : null}
-
-        <div className="mt-4 flex gap-2">
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => save(intent)}
-            className="btn-primary flex-1"
-          >
-            {saving ? "Saving..." : "Save"}
-          </button>
-
-          <button
-            type="button"
-            disabled={saving}
-            className="btn-ghost"
-            onClick={() => {
-              setIntent(null);
-              setReason("");
-              setReasonOther("");
-              setError("");
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      </article>
-    );
-  }
+  const statusTone = skipped
+    ? "border-amber/25 bg-amber-soft/70"
+    : missed
+      ? "border-rose/25 bg-rose-soft/70"
+      : done
+        ? "border-mint/25 bg-mint-soft/70"
+        : "border-line bg-surface";
 
   return (
-    <article className="rounded-3xl border border-line bg-paper px-4 py-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-base text-ink">{habit.title}</p>
-          <p className="mt-1 text-sm text-muted">
-            Preferred {formatTime(habit.preferredTime)}
-          </p>
+    <article className={`animate-rise rounded-4xl border p-5 shadow-soft ${statusTone}`}>
+      <div className="flex items-start gap-3.5">
+        <div
+          className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition-colors ${
+            done
+              ? "bg-mint text-white"
+              : isUpNext
+                ? "bg-accent text-white shadow-soft"
+                : "bg-surface-2 text-muted"
+          }`}
+        >
+          {done ? <CheckIcon /> : <SunIcon size={19} />}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3
+              className={`text-base font-semibold tracking-tight ${
+                done ? "text-muted line-through decoration-mint/60" : "text-ink"
+              }`}
+            >
+              {habit.title}
+            </h3>
+            {isUpNext ? (
+              <Chip className="bg-accent-soft text-accent">Up next</Chip>
+            ) : null}
+          </div>
+
+          {habit.why ? (
+            <p className="mt-1 font-serif text-[0.95rem] leading-snug text-muted">
+              {habit.why}
+            </p>
+          ) : null}
+
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <Chip className="border border-line bg-surface text-ink">
+              {formatTime(habit.preferredTime)}
+            </Chip>
+            {bucket ? (
+              <Chip className="border border-line bg-surface text-muted">
+                {bucket}
+              </Chip>
+            ) : null}
+            {difficultyLabel ? (
+              <Chip className={difficultyTone(habit.difficulty)}>
+                {difficultyLabel}
+              </Chip>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={saving}
-          className="btn-primary"
-          onClick={() => save("completed")}
-        >
-          Completed
-        </button>
+      {intent ? (
+        <div className="mt-5 rounded-3xl border border-line bg-surface p-4">
+          <p className="text-sm font-semibold text-ink">
+            Why didn&apos;t you do {habit.title}?
+          </p>
 
-        <button
-          type="button"
-          disabled={saving}
-          className="btn-ghost"
-          onClick={() => setIntent("skipped")}
-        >
-          Skipped
-        </button>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {FAILURE_REASONS.map((item) => (
+              <label
+                key={item.id}
+                className="flex cursor-pointer items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2.5 text-sm text-ink has-[:checked]:border-transparent has-[:checked]:bg-accent-soft has-[:checked]:text-accent"
+              >
+                <input
+                  type="radio"
+                  name={`reason-${habit.id}`}
+                  value={item.id}
+                  checked={reason === item.id}
+                  onChange={() => setReason(item.id)}
+                  className="accent-accent"
+                />
+                {item.label}
+              </label>
+            ))}
+          </div>
 
-        <button
-          type="button"
-          disabled={saving}
-          className="btn-ghost"
-          onClick={() => setIntent("failed")}
-        >
-          Missed
-        </button>
-      </div>
+          <label className="mt-3 block text-sm text-muted">
+            Other detail
+            <input
+              value={reasonOther}
+              onChange={(event) => setReasonOther(event.target.value)}
+              maxLength={120}
+              className="field"
+              placeholder="Optional"
+            />
+          </label>
 
-      {error ? <p className="mt-3 text-sm text-muted">{error}</p> : null}
+          {error ? <ErrorText message={error} /> : null}
+
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => save(intent)}
+              className="btn-primary flex-1"
+            >
+              {saving
+                ? "Saving..."
+                : intent === "skipped"
+                  ? "Save as skipped"
+                  : "Save as missed"}
+            </button>
+
+            <button
+              type="button"
+              disabled={saving}
+              className="btn-ghost"
+              onClick={() => {
+                setIntent(null);
+                setReason("");
+                setReasonOther("");
+                setError("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-5">
+          {done || skipped || missed ? (
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Chip
+                  className={
+                    done
+                      ? "bg-mint text-white"
+                      : skipped
+                        ? "bg-amber text-white"
+                        : "bg-rose text-white"
+                  }
+                >
+                  <CheckIcon size={14} />
+                  {done ? "Completed" : skipped ? "Skipped" : "Missed"}
+                </Chip>
+                {reasonLabel ? (
+                  <span className="text-xs text-muted">{reasonLabel}</span>
+                ) : null}
+              </div>
+              <span className="text-sm font-medium text-muted">
+                {formatTime(habit.preferredTime)}
+              </span>
+            </div>
+          ) : isToday ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => save("completed")}
+                className="btn-primary"
+              >
+                <CheckIcon size={16} />
+                Completed
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setIntent("skipped")}
+                className="btn-ghost"
+              >
+                Skipped
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setIntent("failed")}
+                className="btn-ghost"
+              >
+                Missed
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">
+              {done || skipped || missed
+                ? "Logged for this day"
+                : "Not logged — viewing only"}
+            </p>
+          )}
+        </div>
+      )}
+
+      {error && !intent ? <ErrorText message={error} /> : null}
     </article>
   );
 }
+
+/* ---------- Check-in ---------- */
 
 function CheckInCard({
   existing,
@@ -304,11 +514,6 @@ function CheckInCard({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    setMood(existing?.mood ?? 0);
-    setBlocker(existing?.blocker ?? "");
-  }, [existing]);
 
   async function submit() {
     if (mood < 1 || mood > 5) {
@@ -330,31 +535,32 @@ function CheckInCard({
     }
   }
 
+  const moodLabels = ["Rough", "Okay", "Fine", "Good", "Great"];
+
   return (
-    <div className="rounded-3xl border border-line bg-paper p-5">
-      <p className="font-serif text-2xl text-ink">How was your day?</p>
-      <p className="mt-1 text-sm text-muted">Ten seconds. Be honest.</p>
+    <section className="card animate-rise p-6">
+      <p className="overline">Evening check-in</p>
+      <h2 className="mt-3 font-serif text-2xl text-ink">How was your day?</h2>
+      <p className="mt-1 text-sm text-muted">Ten seconds. Be honest — it helps the coach.</p>
 
-      <fieldset className="mt-4 flex justify-between gap-2">
-        <legend className="sr-only">Day rating from 1 to 5</legend>
-
+      <div className="mt-5 flex items-center justify-between gap-2">
         {[1, 2, 3, 4, 5].map((value) => (
-          <label
+          <button
             key={value}
-            className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border border-line text-sm has-[:checked]:bg-ink has-[:checked]:text-paper"
+            type="button"
+            onClick={() => setMood(value)}
+            aria-pressed={mood === value}
+            aria-label={`${value} — ${moodLabels[value - 1]}`}
+            className={`flex h-12 w-12 items-center justify-center rounded-full border text-sm font-semibold transition-all duration-200 ${
+              mood === value
+                ? "-translate-y-0.5 border-transparent bg-accent text-white shadow-soft"
+                : "border-line bg-surface text-muted hover:text-ink"
+            }`}
           >
-            <input
-              type="radio"
-              name="mood"
-              value={value}
-              checked={mood === value}
-              onChange={() => setMood(value)}
-              className="sr-only"
-            />
             {value}
-          </label>
+          </button>
         ))}
-      </fieldset>
+      </div>
 
       <label className="mt-4 block text-sm text-muted">
         What got in your way today?
@@ -362,40 +568,45 @@ function CheckInCard({
           value={blocker}
           onChange={(event) => setBlocker(event.target.value)}
           maxLength={160}
-          className="mt-2 w-full rounded-2xl border border-line bg-transparent px-3 py-3 text-ink"
+          className="field"
           placeholder="Optional"
         />
       </label>
 
-      <div className="mt-4">
-        <button
-          type="button"
-          disabled={saving}
-          onClick={submit}
-          className="btn-primary w-full"
-        >
-          {saving
-            ? "Saving..."
-            : existing
-              ? "Update check-in"
-              : "Save check-in"}
-        </button>
-      </div>
+      {saved ? (
+        <p className="mt-3 text-sm font-medium text-mint">Saved. Thanks for the honesty.</p>
+      ) : null}
+      {error ? <ErrorText message={error} /> : null}
 
-      {saved ? <p className="mt-3 text-sm text-muted">Saved.</p> : null}
-      {error ? <p className="mt-3 text-sm text-muted">{error}</p> : null}
-    </div>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={submit}
+        className="btn-primary mt-5 w-full"
+      >
+        {saving
+          ? "Saving..."
+          : existing
+            ? "Update check-in"
+            : "Save check-in"}
+      </button>
+    </section>
   );
 }
+
+/* ---------- Add habit ---------- */
 
 function AddHabit({
   user,
   onCreated,
+  open,
+  onOpenChange,
 }: {
   user: LocalUser;
   onCreated: () => Promise<void>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [goalTitle, setGoalTitle] = useState("");
   const [why, setWhy] = useState("");
@@ -404,18 +615,6 @@ function AddHabit({
   const [difficulty, setDifficulty] = useState("medium");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        className="btn-ghost w-full"
-        onClick={() => setOpen(true)}
-      >
-        Add another habit
-      </button>
-    );
-  }
 
   async function submit() {
     if (title.trim().length < 2) {
@@ -450,7 +649,7 @@ function AddHabit({
         frequencyPerWeek: frequency,
         daysOfWeek: JSON.stringify(defaultDaysForFrequency(frequency)),
         preferredTime,
-        difficulty,
+        difficulty: difficulty as "easy" | "medium" | "hard",
       });
 
       setTitle("");
@@ -459,7 +658,7 @@ function AddHabit({
       setFrequency(4);
       setPreferredTime("07:00");
       setDifficulty("medium");
-      setOpen(false);
+      onOpenChange(false);
 
       await onCreated();
     } catch (err) {
@@ -469,93 +668,119 @@ function AddHabit({
     }
   }
 
+  if (!open) {
+    return (
+      <button type="button" onClick={() => onOpenChange(true)} className="btn-ghost w-full">
+        <PlusIcon size={17} />
+        Add another habit
+      </button>
+    );
+  }
+
   return (
-    <div className="rounded-3xl border border-line bg-paper p-5">
-      <p className="font-serif text-xl text-ink">New habit</p>
-
-      <label className="mt-4 block text-sm text-muted">
-        Habit
-        <input
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          required
-          className="field"
-          placeholder="Read 20 minutes"
-        />
-      </label>
-
-      <label className="mt-3 block text-sm text-muted">
-        Related goal (optional)
-        <input
-          value={goalTitle}
-          onChange={(event) => setGoalTitle(event.target.value)}
-          className="field"
-          placeholder="Get healthier"
-        />
-      </label>
-
-      <label className="mt-3 block text-sm text-muted">
-        Why it matters
-        <input
-          value={why}
-          onChange={(event) => setWhy(event.target.value)}
-          className="field"
-          placeholder="I want more energy"
-        />
-      </label>
-
-      <label className="mt-3 block text-sm text-muted">
-        Days per week
-        <select
-          value={frequency}
-          onChange={(event) => setFrequency(Number(event.target.value))}
-          className="field"
+    <div className="card animate-rise p-6">
+      <div className="flex items-center justify-between">
+        <h2 className="font-serif text-2xl text-ink">New habit</h2>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          className="icon-btn h-10 w-10 text-sm"
+          aria-label="Close"
         >
-          {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-      </label>
+          ✕
+        </button>
+      </div>
 
-      <label className="mt-3 block text-sm text-muted">
-        Preferred time
-        <input
-          value={preferredTime}
-          onChange={(event) => setPreferredTime(event.target.value)}
-          type="time"
-          required
-          className="field"
-        />
-      </label>
+      <div className="mt-6 space-y-4">
+        <label className="block text-sm text-muted">
+          Habit
+          <input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            required
+            className="field"
+            placeholder="Read 20 minutes"
+          />
+        </label>
 
-      <fieldset className="mt-3">
-        <legend className="text-sm text-muted">Difficulty</legend>
+        <label className="block text-sm text-muted">
+          Related goal (optional)
+          <input
+            value={goalTitle}
+            onChange={(event) => setGoalTitle(event.target.value)}
+            className="field"
+            placeholder="Get healthier"
+          />
+        </label>
 
-        <div className="mt-2 flex gap-2">
-          {DIFFICULTIES.map((item) => (
-            <label
-              key={item.id}
-              className="flex-1 cursor-pointer rounded-2xl border border-line px-3 py-2 text-center text-sm has-[:checked]:border-ink has-[:checked]:bg-sand"
+        <label className="block text-sm text-muted">
+          Why it matters
+          <input
+            value={why}
+            onChange={(event) => setWhy(event.target.value)}
+            className="field"
+            placeholder="I want more energy"
+          />
+        </label>
+
+        <div className="grid grid-cols-2 gap-4">
+          <label className="block text-sm text-muted">
+            Days per week
+            <select
+              value={frequency}
+              onChange={(event) => setFrequency(Number(event.target.value))}
+              className="field"
             >
-              <input
-                type="radio"
-                name="difficulty"
-                value={item.id}
-                checked={difficulty === item.id}
-                onChange={() => setDifficulty(item.id)}
-                className="sr-only"
-              />
-              {item.label}
-            </label>
-          ))}
+              {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                <option key={n} value={n}>
+                  {n}×
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-sm text-muted">
+            Preferred time
+            <input
+              value={preferredTime}
+              onChange={(event) => setPreferredTime(event.target.value)}
+              type="time"
+              required
+              className="field"
+            />
+          </label>
         </div>
-      </fieldset>
 
-      {error ? <p className="mt-3 text-sm text-muted">{error}</p> : null}
+        <fieldset>
+          <legend className="text-sm text-muted">Difficulty</legend>
+          <div className="mt-2 flex gap-2">
+            {DIFFICULTIES.map((item) => (
+              <label
+                key={item.id}
+                className={`flex-1 cursor-pointer rounded-2xl border px-3 py-2.5 text-center text-sm transition-colors ${
+                  difficulty === item.id
+                    ? "border-transparent bg-accent-soft text-accent"
+                    : "border-line bg-surface text-ink"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="difficulty"
+                  value={item.id}
+                  checked={difficulty === item.id}
+                  onChange={() => setDifficulty(item.id)}
+                  className="sr-only"
+                />
+                {item.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </div>
 
-      <div className="mt-4 flex gap-2">
+      {error ? <ErrorText message={error} /> : null}
+
+      <div className="mt-6 flex gap-2">
         <button
           type="button"
           disabled={saving}
@@ -564,12 +789,11 @@ function AddHabit({
         >
           {saving ? "Saving..." : "Save habit"}
         </button>
-
         <button
           type="button"
           disabled={saving}
           className="btn-ghost"
-          onClick={() => setOpen(false)}
+          onClick={() => onOpenChange(false)}
         >
           Cancel
         </button>
@@ -578,64 +802,160 @@ function AddHabit({
   );
 }
 
+/* ---------- Page ---------- */
+
 export default function TodayPage() {
   const [user, setUser] = useState<LocalUser | null>(null);
   const [habits, setHabits] = useState<LocalHabit[]>([]);
   const [completions, setCompletions] = useState<LocalCompletion[]>([]);
+  const [goals, setGoals] = useState<LocalGoal[]>([]);
   const [checkIns, setCheckIns] = useState<LocalCheckIn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedDate, setSelectedDate] = useState(todayKey());
+  const [addOpen, setAddOpen] = useState(false);
 
-  const date = todayKey();
+  const addSectionRef = useRef<HTMLDivElement>(null);
+  const today = todayKey();
+  const isToday = selectedDate === today;
 
   const refresh = useCallback(async () => {
     const localUser = await getLocalUser();
-    const [localHabits, localCompletions, localCheckIns] = await Promise.all([
-      getHabits(localUser.id),
-      getCompletions(localUser.id),
-      import("@/lib/local/habits").then(({ getCheckIns }) =>
-        getCheckIns(localUser.id),
-      ),
-    ]);
+    const [localHabits, localCompletions, localGoals, localCheckIns] =
+      await Promise.all([
+        getHabits(localUser.id),
+        getCompletions(localUser.id),
+        getGoals(localUser.id),
+        import("@/lib/local/habits").then(({ getCheckIns }) =>
+          getCheckIns(localUser.id),
+        ),
+      ]);
 
     setUser(localUser);
     setHabits(localHabits);
     setCompletions(localCompletions);
+    setGoals(localGoals);
     setCheckIns(localCheckIns);
   }, []);
 
   useEffect(() => {
-    refresh()
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Could not load Today.");
-      })
-      .finally(() => setLoading(false));
+    let alive = true;
+
+    (async () => {
+      try {
+        await refresh();
+      } catch (err) {
+        if (alive) {
+          setError(
+            err instanceof Error ? err.message : "Could not load Today.",
+          );
+        }
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, [refresh]);
 
-  const todayHabits = useMemo(
+  const stripDays = useMemo(() => dateKeysInclusive(selectedDate, 7), [selectedDate]);
+
+  const stripStats = useMemo(() => {
+    const byDay: Record<
+      string,
+      { done: number; scheduled: number } | undefined
+    > = {};
+
+    for (const day of stripDays) {
+      let scheduled = 0;
+      let done = 0;
+
+      for (const habit of habits) {
+        if (!isScheduledOn(habit, day)) continue;
+        scheduled += 1;
+
+        const completion = completions.find(
+          (item) => item.habitId === habit.id && item.date === day,
+        );
+
+        if (completion?.status === "completed") done += 1;
+      }
+
+      byDay[day] = { scheduled, done };
+    }
+
+    return byDay;
+  }, [habits, completions, stripDays]);
+
+  const dayPlans = useMemo(
     () =>
       habits
-        .filter(isScheduledToday)
+        .filter((habit) => isScheduledOn(habit, selectedDate))
         .map((habit) => ({
-          ...habit,
+          habit,
           log:
             completions.find(
               (completion) =>
                 completion.habitId === habit.id &&
-                completion.date === date,
+                completion.date === selectedDate,
             ) ?? null,
-        })),
-    [habits, completions, date],
+        }))
+        .sort((a, b) => {
+          if (a.habit.preferredTime !== b.habit.preferredTime) {
+            return a.habit.preferredTime.localeCompare(b.habit.preferredTime);
+          }
+          return a.habit.title.localeCompare(b.habit.title);
+        }),
+    [habits, completions, selectedDate],
   );
 
-  const todayCheckIn =
-    checkIns.find((checkIn) => checkIn.date === date) ?? null;
-
+  const doneToday = dayPlans.filter((item) => item.log?.status === "completed").length;
+  const weekdayLabel = parseDateKey(selectedDate).toLocaleDateString("en-US", {
+    weekday: "long",
+  });
   const week = weeklyConsistency(habits, completions);
+  const goal = goals.at(-1) ?? null;
+  const firstName = user?.name?.split(/\s+/)[0] ?? "friend";
+
+  const nowMinutes = useMemo(() => {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+  }, []);
+
+  const upNextKey = useMemo(() => {
+    if (!isToday) return null;
+
+    const pending = dayPlans.filter((item) => !item.log);
+
+    for (const item of pending) {
+      const [h, m] = item.habit.preferredTime.split(":").map(Number);
+      if (h !== undefined && m !== undefined && h * 60 + m >= nowMinutes) {
+        return item.habit.id;
+      }
+    }
+
+    return null;
+  }, [dayPlans, isToday, nowMinutes]);
+
+  const todayCheckIn = isToday
+    ? checkIns.find((checkIn) => checkIn.date === today) ?? null
+    : null;
+
+  function handleAddHabit() {
+    setAddOpen(true);
+    requestAnimationFrame(() => {
+      addSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
 
   async function handleHabitSave(
     habitId: string,
-    status: "completed" | "skipped" | "failed",
+    status: SaveStatus,
     reason?: string,
     reasonOther?: string,
   ) {
@@ -644,7 +964,7 @@ export default function TodayPage() {
     await logHabit({
       userId: user.id,
       habitId,
-      date,
+      date: today,
       status,
       reason,
       reasonOther,
@@ -658,7 +978,7 @@ export default function TodayPage() {
 
     await saveCheckIn({
       userId: user.id,
-      date,
+      date: today,
       mood,
       blocker: blocker || null,
     });
@@ -666,18 +986,25 @@ export default function TodayPage() {
     await refresh();
   }
 
-  if (loading) {
+  if (loading && !user) {
     return (
-      <main>
-        <p className="text-sm text-muted">Loading your habits...</p>
+      <main className="space-y-4" aria-label="Loading today">
+        <div className="h-14 animate-pulse rounded-3xl bg-surface-2" />
+        <div className="h-56 animate-pulse rounded-4xl bg-surface-2" />
+        <div className="h-28 animate-pulse rounded-4xl bg-surface-2" />
+        <div className="h-28 animate-pulse rounded-4xl bg-surface-2" />
       </main>
     );
   }
 
-  if (error) {
+  if (error && !user) {
     return (
       <main>
-        <p className="text-sm text-muted">{error}</p>
+        <EmptyState
+          title="Couldn’t load today"
+          body={error}
+          icon={<SparkIcon size={22} />}
+        />
       </main>
     );
   }
@@ -687,35 +1014,81 @@ export default function TodayPage() {
   }
 
   return (
-    <main>
-      <p className="text-sm text-muted">{greeting()}</p>
-      <h1 className="mt-1 font-serif text-4xl">Today</h1>
+    <main className="pb-6">
+      <PageHeader user={user} onAdd={handleAddHabit} />
 
-      <section className="mt-8" aria-labelledby="habits-heading">
-        <div className="flex items-end justify-between">
-          <h2
-            id="habits-heading"
-            className="text-sm uppercase tracking-[0.18em] text-muted"
-          >
-            Today’s habits
+      <HeroCard
+        goal={goal}
+        firstName={firstName}
+        done={doneToday}
+        scheduled={dayPlans.length}
+      />
+
+      <section className="animate-rise rise-delay-2 mt-7" aria-labelledby="date-heading">
+        <div className="flex items-end justify-between px-1">
+          <h2 id="date-heading" className="overline">
+            Select a day
           </h2>
-
-          <p className="text-sm text-muted">
-            Weekly consistency {week}%
-          </p>
+          <button
+            type="button"
+            onClick={() => setSelectedDate(today)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-accent"
+          >
+            <CalendarIcon size={14} />
+            Back to today
+          </button>
         </div>
 
-        <div className="mt-4 space-y-3">
-          {todayHabits.length === 0 ? (
+        <div className="mt-3">
+          <DateStrip
+            days={stripDays}
+            selectedKey={selectedDate}
+            todayKey={today}
+            completionsByDay={stripStats}
+            onSelect={setSelectedDate}
+          />
+        </div>
+      </section>
+
+      <section className="mt-7" aria-labelledby="plan-heading">
+        <div className="flex items-center justify-between px-1">
+          <h2 id="plan-heading" className="overline">
+            {isToday ? "Today’s plan" : weekdayLabel}
+          </h2>
+
+          {dayPlans.length > 0 ? (
+            <Chip className="bg-accent-soft text-accent">
+              {isToday ? `${doneToday}/${dayPlans.length} done` : "Read only"}
+            </Chip>
+          ) : null}
+        </div>
+
+        {!isToday ? (
+          <p className="mt-2 flex items-center gap-2 rounded-2xl bg-sky-soft px-4 py-3 text-xs font-medium text-sky">
+            <span className="h-1.5 w-1.5 rounded-full bg-sky" />
+            You’re viewing {weekdayLabel}. Check-ins are for today only.
+          </p>
+        ) : null}
+
+        <div className="mt-4 space-y-4">
+          {dayPlans.length === 0 ? (
             <EmptyState
-              title="Nothing scheduled today"
-              body="Rest is part of the plan. You can still add a habit if you want one."
+              title={isToday ? "Nothing scheduled today" : "Nothing scheduled"}
+              body={
+                isToday
+                  ? "Rest is part of the plan. You can still add a habit if you want one."
+                  : "This day was left open. Enjoy it."
+              }
+              icon={<SunIcon size={22} />}
             />
           ) : (
-            todayHabits.map((habit) => (
+            dayPlans.map((plan) => (
               <HabitCard
-                key={habit.id}
-                habit={habit}
+                key={plan.habit.id}
+                habit={plan.habit}
+                log={plan.log}
+                isToday={isToday}
+                isUpNext={upNextKey === plan.habit.id}
                 onSave={handleHabitSave}
               />
             ))
@@ -723,19 +1096,58 @@ export default function TodayPage() {
         </div>
       </section>
 
-      <section className="mt-8" aria-labelledby="checkin-heading">
-        <h2 id="checkin-heading" className="sr-only">
-          Daily check-in
+      <section className="animate-rise mt-7" aria-labelledby="progress-heading">
+        <h2 id="progress-heading" className="overline px-1">
+          Your rhythm
         </h2>
 
-        <CheckInCard
-          existing={todayCheckIn}
-          onSave={handleCheckInSave}
-        />
+        <div className="card mt-3 flex items-center justify-between gap-5 p-5">
+          <div className="flex items-center gap-4">
+            <ProgressRing
+              value={week}
+              size={72}
+              stroke={8}
+              trackClass="text-line"
+            >
+              <p className="text-base font-bold text-ink">{week}%</p>
+            </ProgressRing>
+            <div>
+              <p className="text-sm font-semibold text-ink">7-day rhythm</p>
+              <p className="mt-1 text-xs leading-5 text-muted">
+                Consistency across your scheduled habits this week.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <Chip className="bg-mint-soft text-mint">Done {doneToday}</Chip>
+            <Chip className="border border-line bg-surface text-muted">
+              Planned {dayPlans.length}
+            </Chip>
+          </div>
+        </div>
       </section>
 
-      <section className="mt-6">
-        <AddHabit user={user} onCreated={refresh} />
+      {isToday ? (
+        <section className="mt-7">
+          <CheckInCard key={today} existing={todayCheckIn} onSave={handleCheckInSave} />
+        </section>
+      ) : null}
+
+      <section ref={addSectionRef} className="mt-7 scroll-mt-6">
+        <AddHabit
+          user={user}
+          onCreated={refresh}
+          open={addOpen}
+          onOpenChange={setAddOpen}
+        />
+
+        {addOpen ? (
+          <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted">
+            <ArrowIcon size={13} />
+            Stored locally on this device only
+          </p>
+        ) : null}
       </section>
     </main>
   );

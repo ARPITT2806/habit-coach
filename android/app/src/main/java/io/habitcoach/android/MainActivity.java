@@ -1,4 +1,4 @@
-package com.example.app;
+package io.habitcoach.android;
 
 import com.getcapacitor.BridgeActivity;
 

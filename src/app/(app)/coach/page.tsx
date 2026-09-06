@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { EmptyState } from "@/components/states";
+import { ArrowIcon, Chip, ProgressRing, SparkIcon } from "@/components/ui";
 import { FAILURE_REASONS } from "@/lib/constants";
 import {
   getCompletions,
@@ -64,36 +66,6 @@ function consistency(
   return scheduled === 0 ? 0 : Math.round((completed / scheduled) * 100);
 }
 
-function EmptyState({
-  title,
-  body,
-}: {
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="rounded-3xl border border-line bg-paper p-5">
-      <p className="font-serif text-2xl text-ink">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
-    </div>
-  );
-}
-
-function RecommendationCard({
-  title,
-  rationale,
-}: {
-  title: string;
-  rationale: string;
-}) {
-  return (
-    <article className="rounded-3xl border border-line bg-paper p-5">
-      <p className="font-medium text-ink">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-muted">{rationale}</p>
-    </article>
-  );
-}
-
 export default function CoachPage() {
   const [habits, setHabits] = useState<LocalHabit[]>([]);
   const [completions, setCompletions] = useState<LocalCompletion[]>([]);
@@ -101,7 +73,9 @@ export default function CoachPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    async function load() {
+    let alive = true;
+
+    (async () => {
       try {
         const user = await getLocalUser();
 
@@ -110,17 +84,20 @@ export default function CoachPage() {
           getCompletions(user.id),
         ]);
 
-        setHabits(localHabits);
-        setCompletions(localCompletions);
-      } catch (err) {
-        console.error(err);
-        setError("Could not load your coach.");
+        if (alive) {
+          setHabits(localHabits);
+          setCompletions(localCompletions);
+        }
+      } catch {
+        if (alive) setError("Could not load your coach.");
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
-    }
+    })();
 
-    void load();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const completedCount = completions.filter(
@@ -160,21 +137,19 @@ export default function CoachPage() {
     const scores = habits
       .filter((habit) => habit.isActive)
       .map((habit) => {
-        const scheduled = completions.filter(
+        const misses = completions.filter(
           (item) =>
-            item.habitId === habit.id &&
-            item.status !== "completed",
+            item.habitId === habit.id && item.status !== "completed",
         ).length;
 
         const completed = completions.filter(
           (item) =>
-            item.habitId === habit.id &&
-            item.status === "completed",
+            item.habitId === habit.id && item.status === "completed",
         ).length;
 
         return {
           habit,
-          misses: scheduled,
+          misses,
           completed,
         };
       });
@@ -195,7 +170,7 @@ export default function CoachPage() {
 
     if (consistency7 >= 80) {
       return {
-        title: "You're building consistency.",
+        title: "You’re building consistency.",
         body: `You've completed ${consistency7}% of scheduled habits over the last 7 days. Keep the current routine stable before adding more.`,
       };
     }
@@ -209,7 +184,7 @@ export default function CoachPage() {
 
     if (commonMiss) {
       return {
-        title: "There's a clear friction point.",
+        title: "There’s a clear friction point.",
         body: `Your most common recorded reason for missing a habit is "${commonMiss.label}". Start by reducing that specific obstacle rather than adding more habits.`,
       };
     }
@@ -233,7 +208,7 @@ export default function CoachPage() {
 
     if (consistency7 >= 80) {
       return {
-        title: "Protect what's working",
+        title: "Protect what’s working",
         rationale:
           "Your recent consistency is strong. Avoid adding unnecessary complexity while the current routine is working.",
       };
@@ -246,10 +221,12 @@ export default function CoachPage() {
     };
   }, [enough, weakestHabit, consistency7]);
 
-  if (loading) {
+  if (loading && habits.length === 0) {
     return (
-      <main>
-        <p className="text-sm text-muted">Loading your coach...</p>
+      <main className="space-y-4" aria-label="Loading coach">
+        <div className="h-12 animate-pulse rounded-3xl bg-surface-2" />
+        <div className="h-40 animate-pulse rounded-4xl bg-surface-2" />
+        <div className="h-32 animate-pulse rounded-4xl bg-surface-2" />
       </main>
     );
   }
@@ -257,77 +234,106 @@ export default function CoachPage() {
   if (error) {
     return (
       <main>
-        <p className="text-sm text-muted">{error}</p>
+        <EmptyState
+          title="Couldn’t load your coach"
+          body={error}
+          icon={<SparkIcon size={22} />}
+        />
       </main>
     );
   }
 
   return (
-    <main>
-      <h1 className="font-serif text-4xl">Your coach</h1>
+    <main className="pb-6">
+      <header className="animate-rise">
+        <p className="overline">Coach</p>
+        <h1 className="mt-2 font-serif text-[2rem] leading-tight tracking-tight text-ink">
+          Your coach
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          Guidance based on what you actually logged — not assumptions.
+        </p>
+      </header>
 
-      <p className="mt-2 text-sm leading-6 text-muted">
-        Guidance based on what you actually logged — not assumptions.
-      </p>
-
-      <div className="mt-8">
-        <div className="rounded-3xl border border-line bg-paper p-5">
-          <p className="text-xs uppercase tracking-[0.18em] text-muted">
-            Current signal
-          </p>
-
-          <p className="mt-3 text-2xl font-medium text-ink">
+      <section className="animate-rise rise-delay-1 mt-6 flex items-center justify-between gap-5 rounded-4xl border border-accent/10 bg-accent-soft p-6 shadow-lift">
+        <div className="min-w-0">
+          <p className="overline text-accent">Current signal</p>
+          <p className="mt-2 text-2xl font-bold tracking-tight text-accent">
             {completedCount} completed
           </p>
-
-          <p className="mt-2 text-sm text-muted">
-            {consistency7}% consistency over the last 7 days.
+          <p className="mt-1 text-xs leading-5 text-muted">
+            Across your whole history, from your own logs.
           </p>
         </div>
-      </div>
 
-      <section className="mt-6">
-        {observation ? (
-          <article className="rounded-3xl border border-line bg-paper p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted">
-              Observation
-            </p>
-
-            <p className="mt-3 font-serif text-2xl leading-snug text-ink">
-              {observation.title}
-            </p>
-
-            <p className="mt-3 text-sm leading-6 text-muted">
-              {observation.body}
-            </p>
-          </article>
-        ) : (
-          <EmptyState
-            title="Keep tracking"
-            body="I don't have enough real behavior yet to make a useful coaching observation. Keep completing, skipping, or missing habits."
-          />
-        )}
+        <ProgressRing value={consistency7} size={82} stroke={9} trackClass="text-white">
+          <p className="text-sm font-bold text-ink">{consistency7}%</p>
+        </ProgressRing>
       </section>
 
-      <section className="mt-8 space-y-3" aria-labelledby="rec-heading">
-        <h2
-          id="rec-heading"
-          className="text-sm uppercase tracking-[0.18em] text-muted"
-        >
+      <section className="mt-7" aria-labelledby="observation-heading">
+        <h2 id="observation-heading" className="overline px-1">
+          Observation
+        </h2>
+
+        <div className="mt-3">
+          {observation ? (
+            <article className="card relative overflow-hidden p-6">
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-rose-soft blur-2xl"
+              />
+              <div className="relative">
+                <Chip className="bg-rose-soft text-rose">
+                  <SparkIcon size={13} />
+                  Coach says
+                </Chip>
+                <p className="mt-4 font-serif text-[1.7rem] leading-snug tracking-tight text-ink">
+                  {observation.title}
+                </p>
+                <p className="mt-3 text-sm leading-6 text-muted">
+                  {observation.body}
+                </p>
+              </div>
+            </article>
+          ) : (
+            <EmptyState
+              title="Keep tracking"
+              body="I don't have enough real behavior yet to make a useful coaching observation. Keep completing, skipping, or missing habits."
+              icon={<SparkIcon size={22} />}
+            />
+          )}
+        </div>
+      </section>
+
+      <section className="mt-7" aria-labelledby="rec-heading">
+        <h2 id="rec-heading" className="overline px-1">
           Suggested changes
         </h2>
 
-        {recommendation ? (
-          <RecommendationCard
-            title={recommendation.title}
-            rationale={recommendation.rationale}
-          />
-        ) : (
-          <p className="text-sm leading-6 text-muted">
-            No changes suggested yet. Keep tracking so Habit Flow can learn
-            from your actual behavior.
-          </p>
-        )}
+        <div className="mt-3">
+          {recommendation ? (
+            <article className="rounded-4xl border border-peach/25 bg-peach-soft p-6">
+              <Chip className="bg-peach text-white">Suggested change</Chip>
+              <p className="mt-4 text-base font-semibold tracking-tight text-ink">
+                {recommendation.title}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted">
+                {recommendation.rationale}
+              </p>
+              <div className="mt-4 flex items-center gap-1.5 text-xs font-semibold text-peach">
+                Your coach
+                <ArrowIcon size={14} />
+              </div>
+            </article>
+          ) : (
+            <EmptyState
+              title="Nothing to change yet"
+              body="No changes suggested so far. Keep tracking so Habit Coach can learn from your actual behavior."
+              icon={<ArrowIcon size={22} />}
+            />
+          )}
+        </div>
       </section>
     </main>
   );

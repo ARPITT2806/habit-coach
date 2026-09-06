@@ -13,12 +13,12 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "North – Adaptive habit coach",
-  description: "Learn why habits fail, then adapt them with your consent.",
-  applicationName: "North",
+  title: "Habit Coach – Adaptive habit coach",
+  description: "Build habits that fit your life. Everything stays on your device.",
+  applicationName: "Habit Coach",
   appleWebApp: {
     capable: true,
-    title: "North",
+    title: "Habit Coach",
     statusBarStyle: "default",
   },
 };
