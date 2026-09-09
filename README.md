@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Habit Coach
 
-## Getting Started
+A local-first habit coach for Android (Capacitor). Everything you log — goals,
+habits, completions, check-ins — lives in an on-device SQLite database. Several
+screens use a device-only "local profile" path, so the app works fully offline
+with no account and no server.
 
-First, run the development server:
+## Stack
+
+- Next.js (App Router) + React 19 + TypeScript + Tailwind CSS v4
+- Capacitor 8 for Android packaging
+- Community SQLite for on-device storage
+- Dormant Prisma/Postgres backend for optional server deployments
+
+## Commands
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev            # web dev server
+npm run lint           # eslint
+npx tsc --noEmit       # typecheck
+npm run build:android  # NEXT_STATIC_EXPORT=1 next build && npx cap sync android
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+APKs are produced from `android/` with Android Studio or:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npx cap open android
+# then Build > Build App Bundle(s) / APK(s)
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Release APK: `android/app/build/outputs/apk/release/app-release.apk`
 
-## Learn More
+## Themes
 
-To learn more about Next.js, take a look at the following resources:
+The app ships with a quiet-luxury light palette and a full dark mode
+(`Light` / `Dark` / `Follow system`). The choice is persisted in
+`localStorage` (`habitcoach.theme`) and applied by an inline head script, so
+there is no startup flash. Open the Today screen → gear button → Settings.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Auth modes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The login/sign-up screens are hybrid:
 
-## Deploy on Vercel
+- **Device mode (default).** No env vars required. "Continue with Google" and
+  "Continue with email" build an honest local profile; nothing is sent to a
+  server and passwords are not collected or stored.
+- **Server mode.** Set `NEXT_PUBLIC_HABITFLOW_SERVER=1` and build/deploy with a
+  real Node backend and Postgres. The same screens then use real
+  email/password sign-in and a real Google sign-in (Google Identity Services
+  popup → token verified server-side). See `.env.example` for every required
+  variable.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Environment variables
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See `.env.example`. Required for server deployments:
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Postgres connection string |
+| `AUTH_SECRET` | Session cookie signing secret |
+| `GOOGLE_CLIENT_ID` | Server-side Google token verification |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Client-side Google consent popup |
+| `NEXT_PUBLIC_HABITFLOW_SERVER` | Enables server-backed auth screens |
+
+Optional: `OPENAI_API_KEY` for server-side coach/insight generation.

@@ -121,7 +121,7 @@ function StatCard({
 }) {
   return (
     <div className={`rounded-4xl border p-5 shadow-soft ${className}`}>
-      <p className="overline">{label}</p>
+      <p className="eyebrow">{label}</p>
       <p className="mt-2 text-xl font-bold tracking-tight text-ink">{value}</p>
       {detail ? <p className="mt-1 text-xs text-muted">{detail}</p> : null}
     </div>
@@ -314,7 +314,7 @@ export default function InsightsPage() {
     return (
       <main className="pb-6">
         <header className="animate-rise">
-          <p className="overline">Insights</p>
+          <p className="eyebrow">Insights</p>
           <h1 className="mt-2 font-serif text-[2rem] leading-tight tracking-tight text-ink">
             Your pattern
           </h1>
@@ -336,7 +336,7 @@ export default function InsightsPage() {
   return (
     <main className="pb-6">
       <header className="animate-rise">
-        <p className="overline">Insights</p>
+        <p className="eyebrow">Insights</p>
         <h1 className="mt-2 font-serif text-[2rem] leading-tight tracking-tight text-ink">
           Your pattern
         </h1>
@@ -350,7 +350,7 @@ export default function InsightsPage() {
           <p className="text-sm font-bold text-ink">{days7.rate}%</p>
         </ProgressRing>
         <div className="min-w-0">
-          <p className="overline text-sky">7-day consistency</p>
+          <p className="eyebrow text-sky">7-day consistency</p>
           <p className="mt-2 text-lg font-bold tracking-tight text-ink">
             {days7.scheduled > 0
               ? `${days7.completed} of ${days7.scheduled} scheduled`
@@ -405,7 +405,7 @@ export default function InsightsPage() {
       </section>
 
       <section className="mt-7 space-y-3" aria-labelledby="habit-heading">
-        <h2 id="habit-heading" className="overline px-1">
+        <h2 id="habit-heading" className="eyebrow px-1">
           Habit rhythm
         </h2>
 
@@ -442,7 +442,7 @@ function SingleHabitRow({
     <article className="card p-5">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="overline">{label}</p>
+          <p className="eyebrow">{label}</p>
           <p className="mt-1.5 truncate text-sm font-semibold text-ink">{habit}</p>
         </div>
         <Chip className={habitRowTone(rate)}>{rate}%</Chip>

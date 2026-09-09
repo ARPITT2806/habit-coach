@@ -12,6 +12,16 @@ const lanIp =
 const nextConfig: NextConfig = {
   ...(isProductionBuild ? { output: "export" } : {}),
   allowedDevOrigins: isProductionBuild ? [] : [lanIp],
+  ...(isProductionBuild
+    ? {
+        turbopack: {
+          resolveAlias: {
+            "@/lib/actions/auth": "./src/lib/actions/auth-stub",
+            "@/lib/actions/ai-coach": "./src/lib/actions/ai-coach-stub",
+          },
+        },
+      }
+    : {}),
 };
 
 export default nextConfig;

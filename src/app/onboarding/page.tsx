@@ -8,6 +8,8 @@ import {
   createHabit,
 } from "@/lib/local/habits";
 import { getLocalUser, markLocalUserOnboarded } from "@/lib/local/session";
+import { TimePickerField } from "@/components/time-picker";
+import { syncAllReminders } from "@/lib/local/reminders";
 import {
   defaultDaysForFrequency,
   DIFFICULTIES,
@@ -19,6 +21,8 @@ export default function OnboardingPage() {
   const [goal, setGoal] = useState("");
   const [title, setTitle] = useState("");
   const [why, setWhy] = useState("");
+  const [consequence, setConsequence] = useState("");
+  const [important, setImportant] = useState(true);
   const [frequency, setFrequency] = useState("3");
   const [preferredTime, setPreferredTime] = useState("08:00");
   const [difficulty, setDifficulty] = useState<string>(
@@ -59,6 +63,8 @@ export default function OnboardingPage() {
         goalId: newGoal.id,
         title: title.trim(),
         why: why.trim(),
+        consequence: consequence.trim() || null,
+        isImportant: important,
         frequencyPerWeek: Number(frequency),
         daysOfWeek: JSON.stringify(
           defaultDaysForFrequency(Number(frequency)),
@@ -69,10 +75,14 @@ export default function OnboardingPage() {
 
       await markLocalUserOnboarded();
 
+      syncAllReminders().catch(() => {
+        // reminders are best-effort
+      });
+
       router.replace("/today");
     } catch (err) {
       console.error(err);
-      setError("Something went wrong while setting up Habit Coach.");
+      setError("Something went wrong while setting up HabItiva.");
       setSaving(false);
     }
   }
@@ -80,7 +90,7 @@ export default function OnboardingPage() {
   return (
     <div className="animate-rise">
       <header className="mb-8 px-1">
-        <p className="overline">Habit Coach</p>
+        <p className="eyebrow">HabItiva</p>
         <h1 className="mt-3 font-serif text-[2.1rem] leading-[1.12] tracking-tight text-ink">
           Build a habit that fits your life.
         </h1>
@@ -144,16 +154,7 @@ export default function OnboardingPage() {
           </div>
         </fieldset>
 
-        <label className="block text-sm text-muted">
-          Preferred time
-          <input
-            type="time"
-            value={preferredTime}
-            onChange={(event) => setPreferredTime(event.target.value)}
-            className="field"
-            required
-          />
-        </label>
+        <TimePickerField value={preferredTime} onChange={setPreferredTime} />
 
         <fieldset>
           <legend className="mb-3 text-sm text-muted">
@@ -193,6 +194,27 @@ export default function OnboardingPage() {
             className="field"
             placeholder="I want more energy."
           />
+        </label>
+
+        <label className="block text-sm text-muted">
+          If you skip it, what suffers?
+          <textarea
+            value={consequence}
+            onChange={(event) => setConsequence(event.target.value)}
+            rows={2}
+            className="field"
+            placeholder="I feel sluggish all day (optional)"
+          />
+        </label>
+
+        <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 text-sm text-ink">
+          <input
+            type="checkbox"
+            checked={important}
+            onChange={(event) => setImportant(event.target.checked)}
+            className="h-5 w-5 shrink-0 accent-accent"
+          />
+          This habit is important to me
         </label>
 
         {error && (

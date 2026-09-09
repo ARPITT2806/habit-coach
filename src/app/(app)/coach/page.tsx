@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/states";
+import { CoachChat } from "@/components/coach-chat";
+import { CommandInput } from "@/components/command-input";
 import { ArrowIcon, Chip, ProgressRing, SparkIcon } from "@/components/ui";
 import { FAILURE_REASONS } from "@/lib/constants";
 import {
@@ -67,6 +69,7 @@ function consistency(
 }
 
 export default function CoachPage() {
+  const [userId, setUserId] = useState("");
   const [habits, setHabits] = useState<LocalHabit[]>([]);
   const [completions, setCompletions] = useState<LocalCompletion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,6 +88,7 @@ export default function CoachPage() {
         ]);
 
         if (alive) {
+          setUserId(user.id);
           setHabits(localHabits);
           setCompletions(localCompletions);
         }
@@ -246,7 +250,7 @@ export default function CoachPage() {
   return (
     <main className="pb-6">
       <header className="animate-rise">
-        <p className="overline">Coach</p>
+        <p className="eyebrow">Coach</p>
         <h1 className="mt-2 font-serif text-[2rem] leading-tight tracking-tight text-ink">
           Your coach
         </h1>
@@ -255,9 +259,13 @@ export default function CoachPage() {
         </p>
       </header>
 
+      <CoachChat userId={userId} habits={habits} completions={completions} />
+
+      <CommandInput />
+
       <section className="animate-rise rise-delay-1 mt-6 flex items-center justify-between gap-5 rounded-4xl border border-accent/10 bg-accent-soft p-6 shadow-lift">
         <div className="min-w-0">
-          <p className="overline text-accent">Current signal</p>
+          <p className="eyebrow text-accent">Current signal</p>
           <p className="mt-2 text-2xl font-bold tracking-tight text-accent">
             {completedCount} completed
           </p>
@@ -272,17 +280,13 @@ export default function CoachPage() {
       </section>
 
       <section className="mt-7" aria-labelledby="observation-heading">
-        <h2 id="observation-heading" className="overline px-1">
+        <h2 id="observation-heading" className="eyebrow px-1">
           Observation
         </h2>
 
         <div className="mt-3">
           {observation ? (
             <article className="card relative overflow-hidden p-6">
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-rose-soft blur-2xl"
-              />
               <div className="relative">
                 <Chip className="bg-rose-soft text-rose">
                   <SparkIcon size={13} />
@@ -307,7 +311,7 @@ export default function CoachPage() {
       </section>
 
       <section className="mt-7" aria-labelledby="rec-heading">
-        <h2 id="rec-heading" className="overline px-1">
+        <h2 id="rec-heading" className="eyebrow px-1">
           Suggested changes
         </h2>
 
@@ -329,7 +333,7 @@ export default function CoachPage() {
           ) : (
             <EmptyState
               title="Nothing to change yet"
-              body="No changes suggested so far. Keep tracking so Habit Coach can learn from your actual behavior."
+              body="No changes suggested so far. Keep tracking so HabItiva can learn from your actual behavior."
               icon={<ArrowIcon size={22} />}
             />
           )}

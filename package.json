@@ -1,12 +1,13 @@
 {
-  "name": "habit-coach",
+  "name": "habitiva",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --test --experimental-loader ./src/lib/ai/__tests__/resolve-hook.mjs \"src/lib/__tests__/*.test.ts\" \"src/lib/*/__tests__/*.test.ts\"",
     "db:setup": "prisma migrate dev --name init && prisma db seed",
     "dev:phone": "next dev --hostname 0.0.0.0",
     "build:android": "NEXT_STATIC_EXPORT=1 next build && npx cap sync android"
@@ -15,10 +16,12 @@
     "seed": "node prisma/seed.cjs"
   },
   "dependencies": {
+    "@capacitor-community/speech-recognition": "^7.0.1",
     "@capacitor-community/sqlite": "^8.1.1",
     "@capacitor/android": "^8.5.1",
     "@capacitor/cli": "^8.5.1",
     "@capacitor/core": "^8.5.1",
+    "@capacitor/preferences": "^8.0.1",
     "@prisma/client": "6.19.3",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.10",
@@ -26,6 +29,7 @@
     "openai": "^7.8.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "resend": "^6.26.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {

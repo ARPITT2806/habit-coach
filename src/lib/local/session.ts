@@ -1,4 +1,4 @@
-import { getLocalDatabase } from "./database";
+import { deleteAllLocalData, getLocalDatabase } from "./database";
 
 const LOCAL_USER_ID = "local-user";
 
@@ -85,4 +85,29 @@ export async function markLocalUserOnboarded(): Promise<void> {
     `,
     [timestamp, timestamp, LOCAL_USER_ID],
   );
+}
+
+export async function setLocalUserDetails(details: {
+  name?: string;
+  email?: string;
+}): Promise<void> {
+  const db = await getLocalDatabase();
+
+  const timestamp = new Date().toISOString();
+
+  await db.run(
+    `
+      UPDATE users
+      SET
+        name = COALESCE(?, name),
+        email = COALESCE(?, email),
+        updated_at = ?
+      WHERE id = ?
+    `,
+    [details.name?.trim() || null, details.email?.trim() || null, timestamp, LOCAL_USER_ID],
+  );
+}
+
+export async function deleteLocalAccount(): Promise<void> {
+  await deleteAllLocalData();
 }

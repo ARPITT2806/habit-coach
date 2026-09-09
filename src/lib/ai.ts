@@ -118,16 +118,156 @@ export function collectFacts(input: {
   };
 }
 
-export async function generateCoachCopy(facts: Record<string, unknown>): Promise<CoachObservation> {
+/* ---------- OpenAI Configuration ---------- */
+
+interface OpenAIConfig {
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  maxRequestsPerUserPerDay: number;
+  maxRequestsPerUserPerHour: number;
+  cacheTTLMinutes: number;
+}
+
+function getOpenAIConfig(): OpenAIConfig {
+  return {
+    model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+    temperature: Number(process.env.OPENAI_TEMPERATURE ?? "0.2"),
+    maxTokens: Number(process.env.OPENAI_MAX_TOKENS ?? "200"),
+    maxRequestsPerUserPerDay: Number(process.env.OPENAI_MAX_DAILY_REQUESTS ?? "50"),
+    maxRequestsPerUserPerHour: Number(process.env.OPENAI_MAX_HOURLY_REQUESTS ?? "10"),
+    cacheTTLMinutes: Number(process.env.OPENAI_CACHE_TTL_MINUTES ?? "60"),
+  };
+}
+
+/* ---------- Simple in-memory rate limiting & caching ---------- */
+
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+interface CacheEntry {
+  observation: CoachObservation;
+  expiresAt: number;
+}
+
+const userRateLimits = new Map<string, RateLimitEntry>();
+const userCaches = new Map<string, CacheEntry>();
+
+/** In-memory maps must stay bounded on long-lived servers. */
+function boundMaps(): void {
+  if (userRateLimits.size > 2000) userRateLimits.clear();
+  if (userCaches.size > 2000) {
+    const now = Date.now();
+    for (const [key, entry] of userCaches) {
+      if (now >= entry.expiresAt) userCaches.delete(key);
+    }
+    if (userCaches.size > 2000) userCaches.clear();
+  }
+}
+
+function checkRateLimit(userId: string, config: OpenAIConfig): { allowed: boolean; retryAfterMs?: number } {
+  boundMaps();
+  const now = Date.now();
+  const entry = userRateLimits.get(userId);
+
+  // Daily limit
+  if (entry) {
+    if (now > entry.resetAt) {
+      // Reset daily counter
+      entry.count = 0;
+      entry.resetAt = now + 24 * 60 * 60 * 1000;
+    }
+    if (entry.count >= config.maxRequestsPerUserPerDay) {
+      return { allowed: false, retryAfterMs: entry.resetAt - now };
+    }
+  } else {
+    userRateLimits.set(userId, { count: 0, resetAt: now + 24 * 60 * 60 * 1000 });
+  }
+
+  // Hourly limit (simplified - using same counter with hourly check)
+  const hourlyEntry = userRateLimits.get(`${userId}:hourly`);
+  if (hourlyEntry) {
+    if (now > hourlyEntry.resetAt) {
+      hourlyEntry.count = 0;
+      hourlyEntry.resetAt = now + 60 * 60 * 1000;
+    }
+    if (hourlyEntry.count >= config.maxRequestsPerUserPerHour) {
+      return { allowed: false, retryAfterMs: hourlyEntry.resetAt - now };
+    }
+  } else {
+    userRateLimits.set(`${userId}:hourly`, { count: 0, resetAt: now + 60 * 60 * 1000 });
+  }
+
+  return { allowed: true };
+}
+
+function incrementRateLimit(userId: string) {
+  const entry = userRateLimits.get(userId);
+  if (entry) entry.count += 1;
+  const hourlyEntry = userRateLimits.get(`${userId}:hourly`);
+  if (hourlyEntry) hourlyEntry.count += 1;
+}
+
+function getCachedObservation(userId: string, factsHash: string, config: OpenAIConfig): CoachObservation | null {
+  const cacheKey = `${userId}:${factsHash}`;
+  const entry = userCaches.get(cacheKey);
+  if (entry && Date.now() < entry.expiresAt) {
+    return entry.observation;
+  }
+  return null;
+}
+
+function setCachedObservation(userId: string, factsHash: string, observation: CoachObservation, config: OpenAIConfig) {
+  const cacheKey = `${userId}:${factsHash}`;
+  userCaches.set(cacheKey, {
+    observation,
+    expiresAt: Date.now() + config.cacheTTLMinutes * 60 * 1000,
+  });
+}
+
+function hashFacts(facts: Record<string, unknown>): string {
+  // Simple deterministic hash of the facts object
+  const str = JSON.stringify(facts, Object.keys(facts).sort());
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(36);
+}
+
+/* ---------- OpenAI Integration ---------- */
+
+export async function generateCoachCopy(
+  userId: string,
+  facts: Record<string, unknown>,
+): Promise<CoachObservation> {
   const fallback = deterministicObservation(facts);
   const apiKey = process.env.OPENAI_API_KEY;
+  const config = getOpenAIConfig();
+
   if (!apiKey || facts.insufficient) return fallback;
+
+  // Check rate limit
+  const rateLimit = checkRateLimit(userId, config);
+  if (!rateLimit.allowed) {
+    return fallback;
+  }
+
+  // Check cache
+  const factsHash = hashFacts(facts);
+  const cached = getCachedObservation(userId, factsHash, config);
+  if (cached) return cached;
 
   try {
     const client = new OpenAI({ apiKey });
     const response = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.2,
+      model: config.model,
+      temperature: config.temperature,
+      max_tokens: config.maxTokens,
       messages: [
         {
           role: "system",
@@ -140,9 +280,19 @@ export async function generateCoachCopy(facts: Record<string, unknown>): Promise
         },
       ],
     });
+
     const content = response.choices[0]?.message?.content?.trim();
     if (!content) return fallback;
-    return { kind: "observation", content, evidence: facts };
+
+    const observation: CoachObservation = { kind: "observation", content, evidence: facts };
+
+    // Cache the result
+    setCachedObservation(userId, factsHash, observation, config);
+
+    // Increment rate limit counters
+    incrementRateLimit(userId);
+
+    return observation;
   } catch {
     return fallback;
   }

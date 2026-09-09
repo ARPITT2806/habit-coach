@@ -15,6 +15,34 @@ export function isNativeApp(): boolean {
   return Capacitor.isNativePlatform();
 }
 
+export async function deleteAllLocalData(): Promise<void> {
+  await getLocalDatabase();
+
+  if (database) {
+    try {
+      await database.close();
+    } catch {
+      // connection already closed
+    }
+    database = null;
+  }
+
+  if (connection) {
+    connection = null;
+  }
+
+  if (isNativeApp()) {
+    try {
+      const { clearReminders } = await import("./reminders");
+      await clearReminders();
+    } catch {
+      // native reminder cancellation is best-effort
+    }
+  }
+
+  await CapacitorSQLite.deleteDatabase({ database: DATABASE_NAME });
+}
+
 export async function getLocalDatabase(): Promise<SQLiteDBConnection> {
   if (!isNativeApp()) {
     throw new Error("Local SQLite is only available in the native app.");
@@ -51,6 +79,9 @@ export async function getLocalDatabase(): Promise<SQLiteDBConnection> {
   }
 
   await database.open();
+  // Enforce declared foreign keys where the build supports it; local
+  // deletes never rely on cascade alone (see deleteHabit).
+  await database.execute(`PRAGMA foreign_keys = ON`).catch(() => undefined);
   await initializeDatabase(database);
 
   return database;
@@ -82,6 +113,8 @@ async function initializeDatabase(db: SQLiteDBConnection): Promise<void> {
       goal_id TEXT,
       title TEXT NOT NULL,
       why TEXT,
+      consequence TEXT,
+      is_important INTEGER NOT NULL DEFAULT 0,
       frequency_per_week INTEGER NOT NULL,
       days_of_week TEXT NOT NULL,
       preferred_time TEXT NOT NULL,
@@ -168,4 +201,26 @@ async function initializeDatabase(db: SQLiteDBConnection): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_recommendations_user_created
       ON ai_recommendations(user_id, created_at);
   `);
+
+  await migrateHabitsSchema(db);
+}
+
+async function migrateHabitsSchema(db: SQLiteDBConnection): Promise<void> {
+  const columns = await db.query(`PRAGMA table_info(habits)`);
+  const columnNames = new Set(
+    (columns.values ?? []).map((row) => {
+      if (!row || typeof row !== "object") return undefined;
+      return (row as { name?: unknown }).name;
+    }),
+  );
+
+  if (!columnNames.has("consequence")) {
+    await db.execute(`ALTER TABLE habits ADD COLUMN consequence TEXT`);
+  }
+
+  if (!columnNames.has("is_important")) {
+    await db.execute(
+      `ALTER TABLE habits ADD COLUMN is_important INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
 }

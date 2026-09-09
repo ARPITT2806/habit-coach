@@ -7,10 +7,10 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "io.habitcoach.android"
+    namespace = "io.habitiva.android"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "io.habitcoach.android"
+        applicationId "io.habitiva.android"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -72,4 +72,29 @@ try {
     }
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
+
+// Production safety: the dev-only LAN server URL (capacitor.config.ts,
+// CAP_DEV=1) must NEVER ship in a release build. `npx cap sync` with
+// CAP_DEV=1 writes server.url into the packaged capacitor.config.json,
+// and a later release build would silently point production WebViews at
+// a developer laptop. Fail release asset packaging loudly instead.
+tasks.register("verifyNoDevServerInRelease") {
+    doLast {
+        def configFile = file("src/main/assets/capacitor.config.json")
+        if (!configFile.exists()) {
+            throw new GradleException(
+                "Missing src/main/assets/capacitor.config.json; run 'npx cap sync android' without CAP_DEV=1 first.")
+        }
+        def parsed = new groovy.json.JsonSlurper().parse(configFile)
+        if (parsed?.server?.url) {
+            throw new GradleException(
+                "Refusing release build: capacitor.config.json contains dev server.url '${parsed.server.url}'. " +
+                "Re-run 'npx cap sync android' WITHOUT CAP_DEV=1, then rebuild.")
+        }
+    }
+}
+
+tasks.matching { it.name == "mergeReleaseAssets" || it.name == "bundleRelease" }.configureEach {
+    dependsOn("verifyNoDevServerInRelease")
 }

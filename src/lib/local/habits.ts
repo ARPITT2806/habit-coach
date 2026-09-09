@@ -6,6 +6,8 @@ export type LocalHabit = {
   goalId: string | null;
   title: string;
   why: string | null;
+  consequence: string | null;
+  isImportant: boolean;
   frequencyPerWeek: number;
   daysOfWeek: string;
   preferredTime: string;
@@ -68,6 +70,8 @@ export async function getHabits(userId: string): Promise<LocalHabit[]> {
         goal_id AS goalId,
         title,
         why,
+        consequence,
+        is_important AS isImportant,
         frequency_per_week AS frequencyPerWeek,
         days_of_week AS daysOfWeek,
         preferred_time AS preferredTime,
@@ -86,8 +90,12 @@ export async function getHabits(userId: string): Promise<LocalHabit[]> {
   );
 
   return (result.values ?? []).map((row) => ({
-    ...(row as Omit<LocalHabit, "isActive"> & { isActive: number }),
+    ...(row as Omit<LocalHabit, "isActive" | "isImportant"> & {
+      isActive: number;
+      isImportant: number;
+    }),
     isActive: Boolean((row as { isActive: number }).isActive),
+    isImportant: Boolean((row as { isImportant: number }).isImportant),
   }));
 }
 
@@ -155,6 +163,8 @@ export async function createHabit(input: {
   goalId?: string | null;
   title: string;
   why?: string | null;
+  consequence?: string | null;
+  isImportant?: boolean;
   frequencyPerWeek: number;
   daysOfWeek: string;
   preferredTime: string;
@@ -172,6 +182,8 @@ export async function createHabit(input: {
     goalId: input.goalId ?? null,
     title: input.title,
     why: input.why ?? null,
+    consequence: input.consequence ?? null,
+    isImportant: input.isImportant ?? false,
     frequencyPerWeek: input.frequencyPerWeek,
     daysOfWeek: input.daysOfWeek,
     preferredTime: input.preferredTime,
@@ -192,6 +204,8 @@ export async function createHabit(input: {
         goal_id,
         title,
         why,
+        consequence,
+        is_important,
         frequency_per_week,
         days_of_week,
         preferred_time,
@@ -203,7 +217,7 @@ export async function createHabit(input: {
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       habit.id,
@@ -211,6 +225,8 @@ export async function createHabit(input: {
       habit.goalId,
       habit.title,
       habit.why,
+      habit.consequence,
+      habit.isImportant ? 1 : 0,
       habit.frequencyPerWeek,
       habit.daysOfWeek,
       habit.preferredTime,
@@ -225,6 +241,108 @@ export async function createHabit(input: {
   );
 
   return habit;
+}
+
+export async function ensureGoalForHabit(
+  userId: string,
+  goalTitle: string,
+): Promise<string | null> {
+  const trimmed = goalTitle.trim();
+  if (trimmed) {
+    const goal = await createGoal(userId, trimmed);
+    return goal.id;
+  }
+  const goals = await getGoals(userId);
+  return goals.at(-1)?.id ?? null;
+}
+
+export async function updateHabit(
+  userId: string,
+  habitId: string,
+  patch: {
+    title: string;
+    why?: string | null;
+    consequence?: string | null;
+    isImportant?: boolean;
+    frequencyPerWeek: number;
+    daysOfWeek: string;
+    preferredTime: string;
+    difficulty: string;
+  },
+): Promise<void> {
+  const db = await getLocalDatabase();
+  const timestamp = now();
+
+  await db.run(
+    `
+      UPDATE habits
+      SET
+        title = ?,
+        why = ?,
+        consequence = ?,
+        is_important = ?,
+        frequency_per_week = ?,
+        days_of_week = ?,
+        preferred_time = ?,
+        difficulty = ?,
+        updated_at = ?
+      WHERE id = ? AND user_id = ? AND is_active = 1
+    `,
+    [
+      patch.title,
+      patch.why ?? null,
+      patch.consequence ?? null,
+      patch.isImportant ? 1 : 0,
+      patch.frequencyPerWeek,
+      patch.daysOfWeek,
+      patch.preferredTime,
+      patch.difficulty,
+      timestamp,
+      habitId,
+      userId,
+    ],
+  );
+}
+
+export async function updateHabitPreferredTime(
+  userId: string,
+  habitId: string,
+  preferredTime: string,
+): Promise<void> {
+  const db = await getLocalDatabase();
+  const timestamp = now();
+
+  await db.run(
+    `
+      UPDATE habits
+      SET preferred_time = ?, updated_at = ?
+      WHERE id = ? AND user_id = ? AND is_active = 1
+    `,
+    [preferredTime, timestamp, habitId, userId],
+  );
+}
+
+export async function deleteHabit(userId: string, habitId: string): Promise<void> {
+  const db = await getLocalDatabase();
+
+  // First, delete any AI recommendations associated with this habit
+  await db.run(
+    `DELETE FROM ai_recommendations WHERE user_id = ? AND habit_id = ?`,
+    [userId, habitId],
+  );
+
+  // Delete completions explicitly: foreign-key enforcement is not
+  // guaranteed on every WebView SQLite build, so never rely on cascade.
+  await db.run(
+    `DELETE FROM habit_completions WHERE user_id = ? AND habit_id = ?`,
+    [userId, habitId],
+  );
+
+  // Delete the habit itself (scoped to the owner: never another user's row).
+  await db.run(
+    `DELETE FROM habits WHERE id = ? AND user_id = ?`,
+    [habitId, userId],
+  );
 }
 
 export async function logHabit(input: {

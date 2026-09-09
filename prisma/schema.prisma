@@ -8,19 +8,29 @@ datasource db {
 }
 
 model User {
-  id              String             @id @default(cuid())
-  email           String             @unique
-  passwordHash    String
-  name            String?
-  onboardedAt     DateTime?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  insights        AiInsight[]
-  recommendations AiRecommendation[]
-  checkIns        CheckIn[]
-  goals           Goal[]
-  habits          Habit[]
-  completions     HabitCompletion[]
+  id                     String             @id @default(cuid())
+  email                  String             @unique
+  passwordHash           String
+  name                   String?
+  emailVerified          DateTime?
+  image                  String?
+  provider               String?            @default("email")
+  providerId             String?
+  emailVerificationToken String?
+  emailVerificationExpires DateTime?
+  passwordResetToken     String?
+  passwordResetExpires   DateTime?
+  onboardedAt            DateTime?
+  aiConsentAt            DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  insights               AiInsight[]
+  coachUsage             CoachUsage[]
+  recommendations        AiRecommendation[]
+  checkIns               CheckIn[]
+  goals                  Goal[]
+  habits                 Habit[]
+  completions            HabitCompletion[]
 }
 
 model Goal {
@@ -110,4 +120,18 @@ model AiRecommendation {
   resolvedAt DateTime?
   habit      Habit?    @relation(fields: [habitId], references: [id])
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CoachUsage {
+  id          String   @id @default(cuid())
+  userId      String
+  windowType  String
+  windowStart DateTime
+  count       Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, windowType, windowStart])
+  @@index([userId, windowStart])
 }

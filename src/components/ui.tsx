@@ -62,6 +62,17 @@ export function PlusIcon({ className, size = 20 }: IconProps) {
   );
 }
 
+export function ListIcon({ className, size = 20 }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M8 6h13M8 12h13M8 18h13" />
+      <circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function CheckIcon({ className, size = 18 }: IconProps) {
   return (
     <svg {...base(size)} className={className}>
@@ -95,6 +106,41 @@ export function CalendarIcon({ className, size = 16 }: IconProps) {
   );
 }
 
+export function SettingsIcon({ className, size = 20 }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.2 5.2l1.8 1.8M17 17l1.8 1.8M18.8 5.2 17 7M7 17l-1.8 1.8" />
+    </svg>
+  );
+}
+
+export function MoonIcon({ className, size = 20 }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M20 14.2A8.5 8.5 0 0 1 9.8 4a8.5 8.5 0 1 0 10.2 10.2Z" />
+    </svg>
+  );
+}
+
+export function SystemIcon({ className, size = 20 }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <rect x="3" y="4" width="18" height="12" rx="2.5" />
+      <path d="M9 20h6M12 16v4" />
+    </svg>
+  );
+}
+
+export function LogOutIcon({ className, size = 20 }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M14 4H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h8" />
+      <path d="M17 8l4 4-4 4M9 12h12" />
+    </svg>
+  );
+}
+
 /* ---------- Avatar ---------- */
 
 export function Avatar({
@@ -117,7 +163,7 @@ export function Avatar({
   return (
     <span
       aria-hidden="true"
-      className={`inline-flex shrink-0 select-none items-center justify-center rounded-full bg-ink font-serif text-paper ${className}`}
+      className={`inline-flex shrink-0 select-none items-center justify-center rounded-full bg-charcoal font-serif text-paper ${className}`}
       style={{ width: size, height: size, fontSize: size * 0.38 }}
     >
       {letters}

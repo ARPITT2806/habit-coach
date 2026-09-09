@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState, ErrorText } from "@/components/states";
+import { CommandInput } from "@/components/command-input";
 import {
   ArrowIcon,
-  Avatar,
   CalendarIcon,
   CheckIcon,
   Chip,
@@ -14,24 +15,29 @@ import {
   ProgressRing,
   SparkIcon,
   SunIcon,
+  MoonIcon,
 } from "@/components/ui";
 import {
-  defaultDaysForFrequency,
   DIFFICULTIES,
   FAILURE_REASONS,
   parseDaysOfWeek,
 } from "@/lib/constants";
 import {
+  HabitForm,
+  habitFormToCreateInput,
+  type HabitFormValues,
+} from "@/components/habit-form";
+import {
   dateKeysInclusive,
   formatTime,
-  greeting,
   parseDateKey,
   timeBucket,
   todayKey,
 } from "@/lib/dates";
 import {
-  createGoal,
   createHabit,
+  deleteHabit,
+  ensureGoalForHabit,
   getCompletions,
   getGoals,
   getHabits,
@@ -43,6 +49,14 @@ import {
   type LocalHabit,
 } from "@/lib/local/habits";
 import { getLocalUser, type LocalUser } from "@/lib/local/session";
+import {
+  exactAlarmsGranted,
+  notificationPermissionGranted,
+  openExactAlarmSettings,
+  requestNotificationPermission,
+  syncAllReminders,
+} from "@/lib/local/reminders";
+import { useModalBackHandler } from "@/lib/navigation/use-modal-back";
 
 function isScheduledOn(habit: LocalHabit, key: string): boolean {
   const weekday = parseDateKey(key).getDay();
@@ -108,41 +122,34 @@ function bucketLabel(time: string): string | null {
 /* ---------- Header ---------- */
 
 function PageHeader({
-  user,
-  onAdd,
+  selectedKey,
+  today,
+  onBackToToday,
 }: {
-  user: LocalUser;
-  onAdd: () => void;
+  selectedKey: string;
+  today: string;
+  onBackToToday: () => void;
 }) {
-  const firstName = user.name?.split(/\s+/)[0];
-  const today = new Date();
+  const isToday = selectedKey === today;
+  const date = parseDateKey(selectedKey).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
 
   return (
-    <header className="animate-rise flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3.5">
-        <Avatar name={user.name} size={46} className="shadow-soft" />
-        <div>
-          <p className="overline">{greeting()}</p>
-          <h1 className="mt-0.5 text-lg font-semibold tracking-tight text-ink">
-            {firstName || "Your day"}
-          </h1>
-          <p className="mt-0.5 text-xs text-muted">
-            {today.toLocaleDateString("en-US", {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })}
-          </p>
-        </div>
-      </div>
-
+    <header className="animate-rise relative flex items-center justify-center">
       <button
         type="button"
-        onClick={onAdd}
-        className="icon-btn"
-        aria-label="Add a new habit"
+        onClick={onBackToToday}
+        aria-label={isToday ? undefined : "Back to today"}
+        className="flex items-center gap-3 rounded-full border border-line bg-surface px-5 py-2.5 shadow-soft transition-colors hover:border-accent/40"
       >
-        <PlusIcon />
+        <span className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-accent">
+          Today
+        </span>
+        <span aria-hidden="true" className="h-3.5 w-px bg-line" />
+        <span className="text-sm font-semibold tracking-tight text-ink">{date}</span>
       </button>
     </header>
   );
@@ -173,16 +180,12 @@ function HeroCard({
 
   return (
     <section
-      className="animate-rise rise-delay-1 relative mt-6 overflow-hidden rounded-4xl bg-ink p-6 text-white shadow-lift sm:p-7"
+      className="animate-rise rise-delay-1 relative mt-6 overflow-hidden rounded-4xl bg-charcoal p-6 text-white shadow-lift sm:p-7"
       aria-labelledby="today-focus"
     >
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-accent/40 blur-3xl"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full bg-accent-2/30 blur-3xl"
+        className="pointer-events-none absolute -right-14 -top-14 h-44 w-44 rounded-full bg-accent/35 blur-3xl"
       />
 
       <div className="relative p-6 sm:p-7">
@@ -241,7 +244,7 @@ function HeroCard({
 
 /* ---------- Habit card ---------- */
 
-type SaveStatus = "completed" | "skipped" | "failed";
+type SaveStatus = "completed" | "skipped" | "failed" | "deleted";
 
 function HabitCard({
   habit,
@@ -249,6 +252,7 @@ function HabitCard({
   isToday,
   isUpNext,
   onSave,
+  onDelete,
 }: {
   habit: LocalHabit;
   log: LocalCompletion | null;
@@ -260,12 +264,14 @@ function HabitCard({
     reason?: string,
     reasonOther?: string,
   ) => Promise<void>;
+  onDelete: (habitId: string) => Promise<void>;
 }) {
   const [intent, setIntent] = useState<SaveStatus | null>(null);
   const [reason, setReason] = useState("");
   const [reasonOther, setReasonOther] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   async function save(status: SaveStatus) {
     setError("");
@@ -347,7 +353,16 @@ function HabitCard({
             </p>
           ) : null}
 
+          {habit.consequence ? (
+            <p className="mt-1.5 text-xs leading-5 text-muted">
+              Skipping means {habit.consequence}
+            </p>
+          ) : null}
+
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {habit.isImportant ? (
+              <Chip className="bg-peach-soft text-peach">Important</Chip>
+            ) : null}
             <Chip className="border border-line bg-surface text-ink">
               {formatTime(habit.preferredTime)}
             </Chip>
@@ -484,6 +499,14 @@ function HabitCard({
               >
                 Missed
               </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setShowDeleteConfirm(true)}
+                className="btn-danger"
+              >
+                Delete
+              </button>
             </div>
           ) : (
             <p className="text-xs font-medium uppercase tracking-wide text-muted">
@@ -496,6 +519,39 @@ function HabitCard({
       )}
 
       {error && !intent ? <ErrorText message={error} /> : null}
+
+      {showDeleteConfirm && (
+        <div className="mt-5 rounded-3xl border border-rose/30 bg-rose-soft/50 p-4">
+          <p className="text-sm font-semibold text-ink">
+            Delete &ldquo;{habit.title}&rdquo;?
+          </p>
+          <p className="mt-2 text-sm text-muted">
+            Are you sure you want to delete this habit? Its associated history may also be
+            removed.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setShowDeleteConfirm(false);
+                onDelete(habit.id);
+              }}
+              className="btn-primary flex-1"
+            >
+              {saving ? "Deleting&hellip;" : "Delete"}
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setShowDeleteConfirm(false)}
+              className="btn-ghost flex-1"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </article>
   );
 }
@@ -539,7 +595,7 @@ function CheckInCard({
 
   return (
     <section className="card animate-rise p-6">
-      <p className="overline">Evening check-in</p>
+      <p className="eyebrow">Evening check-in</p>
       <h2 className="mt-3 font-serif text-2xl text-ink">How was your day?</h2>
       <p className="mt-1 text-sm text-muted">Ten seconds. Be honest — it helps the coach.</p>
 
@@ -607,64 +663,26 @@ function AddHabit({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [title, setTitle] = useState("");
-  const [goalTitle, setGoalTitle] = useState("");
-  const [why, setWhy] = useState("");
-  const [frequency, setFrequency] = useState(4);
-  const [preferredTime, setPreferredTime] = useState("07:00");
-  const [difficulty, setDifficulty] = useState("medium");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [formKey, setFormKey] = useState(0);
 
-  async function submit() {
-    if (title.trim().length < 2) {
-      setError("Check the habit details and try again.");
-      return;
-    }
+  // Add Habit → Back returns to Today, never to the home screen.
+  useModalBackHandler(open, () => onOpenChange(false));
 
-    if (preferredTime.length !== 5) {
-      setError("Choose a valid preferred time.");
-      return;
-    }
-
-    setSaving(true);
-    setError("");
-
+  async function submit(values: HabitFormValues) {
     try {
-      let goalId: string | null = null;
+      const goalId = await ensureGoalForHabit(user.id, values.goalTitle);
 
-      if (goalTitle.trim()) {
-        const goal = await createGoal(user.id, goalTitle.trim());
-        goalId = goal.id;
-      } else {
-        const goals = await getGoals(user.id);
-        goalId = goals.at(-1)?.id ?? null;
-      }
+      await createHabit(habitFormToCreateInput(user.id, goalId, values));
 
-      await createHabit({
-        userId: user.id,
-        goalId,
-        title: title.trim(),
-        why: why.trim() || null,
-        frequencyPerWeek: frequency,
-        daysOfWeek: JSON.stringify(defaultDaysForFrequency(frequency)),
-        preferredTime,
-        difficulty: difficulty as "easy" | "medium" | "hard",
-      });
-
-      setTitle("");
-      setGoalTitle("");
-      setWhy("");
-      setFrequency(4);
-      setPreferredTime("07:00");
-      setDifficulty("medium");
+      setFormKey((key) => key + 1);
       onOpenChange(false);
 
       await onCreated();
+      syncAllReminders().catch(() => {
+        // reminders are best-effort
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create habit.");
-    } finally {
-      setSaving(false);
+      throw err instanceof Error ? err : new Error("Could not create habit.");
     }
   }
 
@@ -691,108 +709,19 @@ function AddHabit({
         </button>
       </div>
 
-      <div className="mt-6 space-y-4">
-        <label className="block text-sm text-muted">
-          Habit
-          <input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            required
-            className="field"
-            placeholder="Read 20 minutes"
-          />
-        </label>
-
-        <label className="block text-sm text-muted">
-          Related goal (optional)
-          <input
-            value={goalTitle}
-            onChange={(event) => setGoalTitle(event.target.value)}
-            className="field"
-            placeholder="Get healthier"
-          />
-        </label>
-
-        <label className="block text-sm text-muted">
-          Why it matters
-          <input
-            value={why}
-            onChange={(event) => setWhy(event.target.value)}
-            className="field"
-            placeholder="I want more energy"
-          />
-        </label>
-
-        <div className="grid grid-cols-2 gap-4">
-          <label className="block text-sm text-muted">
-            Days per week
-            <select
-              value={frequency}
-              onChange={(event) => setFrequency(Number(event.target.value))}
-              className="field"
-            >
-              {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-                <option key={n} value={n}>
-                  {n}×
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block text-sm text-muted">
-            Preferred time
-            <input
-              value={preferredTime}
-              onChange={(event) => setPreferredTime(event.target.value)}
-              type="time"
-              required
-              className="field"
-            />
-          </label>
-        </div>
-
-        <fieldset>
-          <legend className="text-sm text-muted">Difficulty</legend>
-          <div className="mt-2 flex gap-2">
-            {DIFFICULTIES.map((item) => (
-              <label
-                key={item.id}
-                className={`flex-1 cursor-pointer rounded-2xl border px-3 py-2.5 text-center text-sm transition-colors ${
-                  difficulty === item.id
-                    ? "border-transparent bg-accent-soft text-accent"
-                    : "border-line bg-surface text-ink"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="difficulty"
-                  value={item.id}
-                  checked={difficulty === item.id}
-                  onChange={() => setDifficulty(item.id)}
-                  className="sr-only"
-                />
-                {item.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+      <div className="mt-6">
+        <HabitForm
+          key={formKey}
+          submitLabel="Save habit"
+          showGoalField
+          onSubmit={submit}
+        />
       </div>
 
-      {error ? <ErrorText message={error} /> : null}
-
-      <div className="mt-6 flex gap-2">
+      <div className="mt-4">
         <button
           type="button"
-          disabled={saving}
-          className="btn-primary flex-1"
-          onClick={submit}
-        >
-          {saving ? "Saving..." : "Save habit"}
-        </button>
-        <button
-          type="button"
-          disabled={saving}
-          className="btn-ghost"
+          className="btn-ghost w-full"
           onClick={() => onOpenChange(false)}
         >
           Cancel
@@ -802,9 +731,208 @@ function AddHabit({
   );
 }
 
+/* ---------- Reminder card ---------- */
+
+function ReminderCard() {
+  const [permission, setPermission] = useState<boolean | null>(null);
+  const [exact, setExact] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const refresh = useCallback(async () => {
+    const [perm, exactAlarm] = await Promise.all([
+      notificationPermissionGranted(),
+      exactAlarmsGranted(),
+    ]);
+    setPermission(perm);
+    setExact(exactAlarm);
+  }, []);
+
+  useEffect(() => {
+    refresh().catch(() => {
+      setPermission(false);
+    });
+  }, [refresh]);
+
+  if (permission === null) {
+    return (
+      <section className="card mt-6 animate-pulse p-6" aria-hidden="true">
+        <div className="h-4 w-28 rounded bg-surface-2" />
+        <div className="mt-3 h-4 w-56 rounded bg-surface-2" />
+        <div className="mt-4 h-11 w-44 rounded-full bg-surface-2" />
+      </section>
+    );
+  }
+
+  async function enable() {
+    setBusy(true);
+    setError("");
+
+    try {
+      const granted = await requestNotificationPermission();
+
+      if (granted) {
+        await syncAllReminders();
+      }
+
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update notifications.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openTiming() {
+    setBusy(true);
+    setError("");
+
+    try {
+      await openExactAlarmSettings();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open settings.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section
+      className="animate-rise rise-delay-2 mt-6 rounded-4xl border border-accent/15 bg-accent-soft p-5 shadow-soft"
+      aria-labelledby="reminders-heading"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p id="reminders-heading" className="text-sm font-semibold text-ink">
+          Nudges
+        </p>
+        {permission && exact ? (
+          <span className="chip bg-mint-soft text-mint">On</span>
+        ) : (
+          <span className="chip bg-amber-soft text-amber">Off</span>
+        )}
+      </div>
+
+      <p className="mt-2 text-xs leading-5 text-muted">
+        {permission && exact
+          ? "Habit reminders are scheduled for the days and times you picked. You can mark one done right from the notification."
+          : permission
+            ? "Reminders are on, but precise timing is off. Exact alarms keep nudges on schedule even between app opens."
+            : "Get a quiet nudge at your preferred time. Everything stays on this device — no account, no server."}
+      </p>
+
+      {permission && exact ? null : (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {!permission ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={enable}
+              className="btn-primary"
+            >
+              {busy ? "Working..." : "Turn on reminders"}
+            </button>
+          ) : null}
+
+          {permission && !exact ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={openTiming}
+              className="btn-ghost"
+            >
+              Allow precise timing
+            </button>
+          ) : null}
+        </div>
+      )}
+
+      {error ? <ErrorText message={error} /> : null}
+    </section>
+  );
+}
+
+/* ---------- Compact theme toggle (for bottom section) ---------- */
+
+function ThemeSheetCompact() {
+  const [preference, setPreference] = useState<"light" | "dark" | "system">(() => {
+    if (typeof window === "undefined") return "system";
+    const stored = localStorage.getItem("habitcoach.theme");
+    if (stored === "light" || stored === "dark" || stored === "system") {
+      return stored;
+    }
+    return "system";
+  });
+
+  const apply = useCallback((next: "light" | "dark" | "system") => {
+    document.documentElement.setAttribute(
+      "data-theme",
+      next === "system"
+        ? window.matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light"
+        : next,
+    );
+  }, []);
+
+  useEffect(() => {
+    apply(preference);
+  }, [apply, preference]);
+
+  useEffect(() => {
+    if (preference !== "system") return;
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => apply("system");
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, [apply, preference]);
+
+  function select(next: "light" | "dark" | "system") {
+    setPreference(next);
+    localStorage.setItem("habitcoach.theme", next);
+    apply(next);
+  }
+
+  return (
+    <div className="rounded-2xl border border-line bg-surface p-4">
+      <p className="eyebrow mb-3">Appearance</p>
+      <div className="flex items-center gap-2">
+        {[
+          { value: "light" as const, label: "Light", icon: <SunIcon size={18} /> },
+          { value: "dark" as const, label: "Dark", icon: <MoonIcon size={18} /> },
+          { value: "system" as const, label: "System", icon: <CalendarIcon size={18} /> },
+        ].map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={preference === option.value}
+            onClick={() => select(option.value)}
+            className={`flex-1 flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${
+              preference === option.value
+                ? "border-accent bg-accent-soft text-accent"
+                : "border-line bg-surface text-ink hover:border-accent/40"
+            }`}
+          >
+            <span className="shrink-0 text-muted">{option.icon}</span>
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Page ---------- */
 
 export default function TodayPage() {
+  return (
+    <Suspense fallback={null}>
+      <TodayContent />
+    </Suspense>
+  );
+}
+
+function TodayContent() {
   const [user, setUser] = useState<LocalUser | null>(null);
   const [habits, setHabits] = useState<LocalHabit[]>([]);
   const [completions, setCompletions] = useState<LocalCompletion[]>([]);
@@ -818,6 +946,8 @@ export default function TodayPage() {
   const addSectionRef = useRef<HTMLDivElement>(null);
   const today = todayKey();
   const isToday = selectedDate === today;
+  const searchParams = useSearchParams();
+  const addRequested = searchParams.get("add") === "1";
 
   const refresh = useCallback(async () => {
     const localUser = await getLocalUser();
@@ -953,6 +1083,12 @@ export default function TodayPage() {
     });
   }
 
+  useEffect(() => {
+    if (!addRequested || addOpen || loading || !user) return;
+    const id = requestAnimationFrame(handleAddHabit);
+    return () => cancelAnimationFrame(id);
+  }, [addRequested, addOpen, loading, user]);
+
   async function handleHabitSave(
     habitId: string,
     status: SaveStatus,
@@ -1015,7 +1151,11 @@ export default function TodayPage() {
 
   return (
     <main className="pb-6">
-      <PageHeader user={user} onAdd={handleAddHabit} />
+      <PageHeader
+        selectedKey={selectedDate}
+        today={today}
+        onBackToToday={() => setSelectedDate(today)}
+      />
 
       <HeroCard
         goal={goal}
@@ -1024,35 +1164,9 @@ export default function TodayPage() {
         scheduled={dayPlans.length}
       />
 
-      <section className="animate-rise rise-delay-2 mt-7" aria-labelledby="date-heading">
-        <div className="flex items-end justify-between px-1">
-          <h2 id="date-heading" className="overline">
-            Select a day
-          </h2>
-          <button
-            type="button"
-            onClick={() => setSelectedDate(today)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-accent"
-          >
-            <CalendarIcon size={14} />
-            Back to today
-          </button>
-        </div>
-
-        <div className="mt-3">
-          <DateStrip
-            days={stripDays}
-            selectedKey={selectedDate}
-            todayKey={today}
-            completionsByDay={stripStats}
-            onSelect={setSelectedDate}
-          />
-        </div>
-      </section>
-
       <section className="mt-7" aria-labelledby="plan-heading">
         <div className="flex items-center justify-between px-1">
-          <h2 id="plan-heading" className="overline">
+          <h2 id="plan-heading" className="eyebrow">
             {isToday ? "Today’s plan" : weekdayLabel}
           </h2>
 
@@ -1090,14 +1204,51 @@ export default function TodayPage() {
                 isToday={isToday}
                 isUpNext={upNextKey === plan.habit.id}
                 onSave={handleHabitSave}
+                onDelete={async (habitId) => {
+                  await deleteHabit(user.id, habitId);
+                  refresh();
+                  syncAllReminders().catch(() => {
+                    // reminders are best-effort
+                  });
+                }}
               />
             ))
           )}
         </div>
       </section>
 
+      <section className="animate-rise rise-delay-2 mt-7" aria-labelledby="date-heading">
+        <div className="flex items-end justify-between px-1">
+          <h2 id="date-heading" className="eyebrow">
+            Select a day
+          </h2>
+          <button
+            type="button"
+            onClick={() => setSelectedDate(today)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-accent"
+          >
+            <CalendarIcon size={14} />
+            Back to today
+          </button>
+        </div>
+
+        <div className="mt-3">
+          <DateStrip
+            days={stripDays}
+            selectedKey={selectedDate}
+            todayKey={today}
+            completionsByDay={stripStats}
+            onSelect={setSelectedDate}
+          />
+        </div>
+      </section>
+
+      <CommandInput onChanged={() => refresh().catch(() => undefined)} />
+
+      <ReminderCard />
+
       <section className="animate-rise mt-7" aria-labelledby="progress-heading">
-        <h2 id="progress-heading" className="overline px-1">
+        <h2 id="progress-heading" className="eyebrow px-1">
           Your rhythm
         </h2>
 
@@ -1148,7 +1299,13 @@ export default function TodayPage() {
             Stored locally on this device only
           </p>
         ) : null}
+
+        {/* Dark mode toggle */}
+        <div className="mt-6 animate-rise">
+          <ThemeSheetCompact />
+        </div>
       </section>
-    </main>
+
+      </main>
   );
 }

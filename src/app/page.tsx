@@ -24,7 +24,7 @@ export default function HomePage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-lg items-center justify-center px-5">
-      <p className="text-sm text-muted">Starting Habit Coach...</p>
+      <p className="text-sm text-muted">Starting HabItiva...</p>
     </main>
   );
 }

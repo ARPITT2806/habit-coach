@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated / native artifacts:
+    "android/**",
+    "ios/**",
+    "prisma/seed.cjs",
+    "prisma/seed.js",
   ]),
 ]);
 

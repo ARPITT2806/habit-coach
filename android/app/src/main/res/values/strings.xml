@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Habit Coach</string>
-    <string name="title_activity_main">Habit Coach</string>
-    <string name="package_name">io.habitcoach.android</string>
-    <string name="custom_url_scheme">io.habitcoach.android</string>
+    <string name="app_name">HabItiva</string>
+    <string name="title_activity_main">HabItiva</string>
+    <string name="package_name">io.habitiva.android</string>
+    <string name="custom_url_scheme">io.habitiva.android</string>
 </resources>

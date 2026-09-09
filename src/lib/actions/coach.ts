@@ -19,7 +19,7 @@ export async function refreshCoach() {
   ]);
 
   const facts = collectFacts({ goals, habits, logs, checkIns });
-  const observation = await generateCoachCopy(facts);
+  const observation = await generateCoachCopy(session.id, facts);
 
   await prisma.aiInsight.create({
     data: {
@@ -71,7 +71,16 @@ export async function resolveRecommendation(id: string, accept: boolean) {
       where: { id: recommendation.habitId, userId: session.id },
     });
     if (habit) {
-      const payload = JSON.parse(recommendation.payload) as Record<string, unknown>;
+      let payload: Record<string, unknown>;
+      try {
+        const parsed: unknown = JSON.parse(recommendation.payload);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return { error: "Recommendation not found." };
+        }
+        payload = parsed as Record<string, unknown>;
+      } catch {
+        return { error: "Recommendation not found." };
+      }
       await prisma.habit.update({
         where: { id: habit.id },
         data: applyPayload(habit, payload),

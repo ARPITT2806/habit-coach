@@ -17,8 +17,8 @@ Target / compile SDK: 36 (Android 16) · Min SDK: 24 · versionCode 1 · version
 ## Store listing inputs
 
 - App name (≤30): **Habit Coach**
-- Short description (≤80 chars): *A local-first habit tracker with an adaptive
-  coach that gives you data-driven nudges.*
+- Short description (≤80 chars): *A local-first habit tracker that coaches you
+  from your own data.* (64 chars.)
 - Full description (≤4000): see below.
 - Category: **Health & Fitness**
 - Tags / apps links: none used.
@@ -26,9 +26,22 @@ Target / compile SDK: 36 (Android 16) · Min SDK: 24 · versionCode 1 · version
   (no violence/blood, no drugs/tobacco/alcohol content, no mature content, no
   gambling, no user-generated content, no interactive elements that require
   rating); recommended result: **Everyone**.
-- Data safety form: see section below.
+- Data safety form: answer **"No data collected or shared"** — see
+  `DATA_SAFETY.md` for the full walkthrough.
 - Target audience & content: all ages; privacy-sensitive (local-only is a selling point).
 - Pricing: free, no in-app purchases, no ads.
+
+### Required but not yet provided
+
+These must be filled by the Founder (no invented/public URLs or identity):
+
+1. **Privacy policy public URL** — host `PRIVACY_POLICY.md` somewhere public
+   (GitHub Pages `/raw`, Notion public, etc.). Placeholder used in-app and in
+   docs: `[PRIVACY_POLICY_URL_REQUIRED]`.
+2. **Developer contact email** — shown in the play listing, in Data safety,
+   and as `[DEVELOPER_CONTACT_EMAIL_REQUIRED]` in the privacy policy text.
+3. **Developer legal name / account identity** — Play Console declares the
+   developer legal entity; not invented here.
 
 ## Full description (draft)
 
@@ -57,44 +70,45 @@ Target / compile SDK: 36 (Android 16) · Min SDK: 24 · versionCode 1 · version
 
 ## Data safety form (answers)
 
-The app does **not** collect or share data.
+The app does **not** collect or share data. Full form walkthrough in
+`DATA_SAFETY.md`. Declaration: **"No data collected or shared."**
 
-| Question | Answer |
-| --- | --- |
-| Does your app collect or share user data? | No — see below |
-| Data collected | None (no personal, financial, health, location, photos, messages, etc. is collected, transmitted, or stored off-device) |
-| Data shared | None |
-| Data types | N/A |
-| Collection methods | N/A |
-| Data encrypted in transit | N/A (no transit) |
-| Can user request data deletion | Yes — deleting the app removes all data (local only) |
-| Policy URL | Must be a public URL; host `store-assets/PRIVACY_POLICY.md` (Founder task) |
-| Sign-in | Not collected (local in-memory only; email/password never stored or transmitted) |
-| Health-related | The app is "Health & Fitness" in category but tracks no medical or fitness sensor data; no fit data collected — declare "Not collected" accurately |
+## Store graphics
 
-Declaration is safe to mark **"No data collected or shared."**
+- **Icon:** `store-assets/icon-512.png` (512×512, opaque, emblem on white —
+  matches launcher).
+- **Feature graphic** (REQUIRED, exactly 1024×500, JPEG or 24-bit PNG, **no
+  alpha**): `store-assets/feature-graphic.png`. Keep key text/artwork inside
+  the center ~80%; preview it cropped to square/2:1 before upload.
+- **Phone screenshots** (min 2, max 8; recommended 1080×1920, we use 1080×2340,
+  RGB, no alpha — captured on-device):
+  1. `store-assets/screenshots/1-today-done.png` — Today with a completed habit
+  2. `store-assets/screenshots/2-evening-checkin.png` — evening check-in
+  3. `store-assets/screenshots/3-coach.png` — coach observation
+  4. `store-assets/screenshots/4-insights.png` — insight patterns
+  - Optional 5th: onboarding screen (goal + habit setup).
+- **Tablet screenshots:** not needed — App ships phone-only UI; do not declare
+  large-screen optimization.
 
-## Screenshots (phone, 9:16 ideal)
+## Privacy compliance (already implemented in v1.0.0)
 
-Capture from device:
-1. Login / entry
-2. Onboarding (goal + habit)
-3. Today (with a scheduled habit + check-in)
-4. Coach (an observation from logged data)
-5. Insights (pattern stats)
-
-Use `store-assets/screenshots/` in portrait 1080×2340. [BLOCKED on device — airplane-mode test still running]
-
-## Store icon
-
-`store-assets/icon-512.png` (512×512, opaque, emblem on white — matches launcher).
+- In-app `/privacy` route (static, reachable without sign-in) and "Privacy
+  policy" link on the login/sign-up screens.
+- In-app **"Delete all data on this device"** control on the login screen
+  (two-tap confirm, no sign-in required) → permanently deletes the local SQLite
+  database, satisfying Play's account/data-deletion requirement.
 
 ## Release checklist for the Play Console
 
 1. Upload `app-release.aab` to a **closed/internal track** first.
 2. Accept **Play App Signing**.
-3. Fill listing (name/desc/screenshots/icon above), content rating, data safety, audience.
-4. Provide privacy policy public URL (host `PRIVACY_POLICY.md`).
-5. Let Play review (16h+ to a few days, targetSdk 36 compliant).
-6. Promote to production after approval.
-7. Increase versionCode (and versionName) for every subsequent release; never roll back versionCode.
+3. Fill listing (name/desc/icon/feature graphic/screenshots above), content
+   rating (Everyone), data safety (No data collected/shared), audience, and
+   enter the 3 Founder-provided items in "Required but not yet provided".
+4. Provide the privacy policy public URL (host `PRIVACY_POLICY.md`).
+5. Cross-check the privacy policy against the in-app `/privacy` page
+   (`src/app/privacy/page.tsx`) — keep them in sync.
+6. Let Play review (16h+ to a few days, targetSdk 36 compliant).
+7. Promote to production after approval.
+8. Increase versionCode (and versionName) for every subsequent release; never
+   roll back versionCode.
