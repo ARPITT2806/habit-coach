@@ -50,7 +50,7 @@ import {
 } from "@/lib/local/habits";
 import { getLocalUser, type LocalUser } from "@/lib/local/session";
 import { isNativeApp } from "@/lib/local/database";
-import { completeHabit, fetchTodayData } from "@/lib/api/web-today";
+import { completeHabit, fetchTodayData, saveCheckInWeb } from "@/lib/api/web-today";
 import {
   exactAlarmsGranted,
   notificationPermissionGranted,
@@ -574,10 +574,13 @@ function HabitCard({
 function CheckInCard({
   existing,
   readOnly,
+  serverSave,
   onSave,
 }: {
   existing: LocalCheckIn | null;
   readOnly?: boolean;
+  /** Web server mode: interactive card wired to the server (not local SQLite). */
+  serverSave?: boolean;
   onSave: (mood: number, blocker: string) => Promise<void>;
 }) {
   const [mood, setMood] = useState(existing?.mood ?? 0);
@@ -608,7 +611,7 @@ function CheckInCard({
 
   const moodLabels = ["Rough", "Okay", "Fine", "Good", "Great"];
 
-  if (readOnly) {
+  if (readOnly && !serverSave) {
     if (!existing) return null;
     return (
       <section className="card animate-rise p-6">
@@ -1194,7 +1197,16 @@ function TodayContent() {
   }
 
   async function handleCheckInSave(mood: number, blocker: string) {
-    if (!nativeMode || !user) return;
+    if (!user) return;
+
+    // Web: authenticated server write via /api/web/checkin (delegates to the
+    // existing session-scoped submitCheckIn — one row per user/day).
+    if (!nativeMode) {
+      const result = await saveCheckInWeb(mood, blocker);
+      if (!result.ok) throw new Error(result.error);
+      await refresh();
+      return;
+    }
 
     await saveCheckIn({
       userId: user.id,
@@ -1385,7 +1397,7 @@ function TodayContent() {
 
       {isToday ? (
         <section className="mt-7">
-          <CheckInCard key={today} existing={todayCheckIn} readOnly={!nativeMode} onSave={handleCheckInSave} />
+          <CheckInCard key={today} existing={todayCheckIn} readOnly={!nativeMode} serverSave={!nativeMode} onSave={handleCheckInSave} />
         </section>
       ) : null}
 

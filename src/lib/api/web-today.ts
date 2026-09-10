@@ -183,3 +183,73 @@ export async function completeHabit(
   }
   return { ok: false, code: "UPSTREAM_ERROR", error: "Could not save that check-in." };
 }
+
+export type SaveCheckInResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code: "UNAUTHORIZED" | "BAD_REQUEST" | "UPSTREAM_ERROR" | "OFFLINE" | "TIMEOUT";
+      error: string;
+    };
+
+/**
+ * Web daily check-in write (mood 1-5, optional blocker). Same-origin POST —
+ * the session cookie identifies the user server-side; mood/blocker validity
+ * and the one-row-per-user-day upsert are enforced there.
+ */
+export async function saveCheckInWeb(
+  mood: number,
+  blocker?: string,
+  timeoutMs: number = WEB_TODAY_TIMEOUT_MS,
+): Promise<SaveCheckInResult> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch("/api/web/checkin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mood,
+        ...(blocker !== undefined ? { blocker } : {}),
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    window.clearTimeout(timer);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return {
+        ok: false,
+        code: "TIMEOUT",
+        error: "Saving is taking too long. Check your connection and retry.",
+      };
+    }
+    return {
+      ok: false,
+      code: "OFFLINE",
+      error: "Could not reach the Habitiva server. Check your connection.",
+    };
+  }
+  window.clearTimeout(timer);
+
+  if (response.status === 401) {
+    return { ok: false, code: "UNAUTHORIZED", error: "Please sign in to save check-ins." };
+  }
+
+  let payload: { ok?: unknown; error?: unknown } = {};
+  try {
+    payload = (await response.json()) as typeof payload;
+  } catch {
+    return { ok: false, code: "UPSTREAM_ERROR", error: "Could not save check-in." };
+  }
+
+  if (response.ok && payload.ok === true) return { ok: true };
+  if (response.status === 400) {
+    return {
+      ok: false,
+      code: "BAD_REQUEST",
+      error: typeof payload.error === "string" && payload.error ? payload.error : "Could not save check-in.",
+    };
+  }
+  return { ok: false, code: "UPSTREAM_ERROR", error: "Could not save check-in." };
+}

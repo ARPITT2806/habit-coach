@@ -10,6 +10,7 @@ import {
 } from "../coach-client";
 import { fetchTodayData } from "../web-today";
 import { completeHabit } from "../web-today";
+import { saveCheckInWeb } from "../web-today";
 
 // Minimal browser stand-ins for client modules under plain Node.
 const storage = new Map<string, string>();
@@ -399,6 +400,57 @@ describe("web habit completion", () => {
       throw new TypeError("fetch failed");
     };
     const offline = await completeHabit("h1");
+    assert.equal(offline.ok, false);
+    if (!offline.ok) assert.equal(offline.code, "OFFLINE");
+  });
+});
+
+describe("web check-in", () => {
+  it("posts mood and blocker and reports success", async () => {
+    let seen: unknown;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      seen = { url: _url, body: JSON.parse(init.body) };
+      return jsonResponse(200, { ok: true });
+    };
+    const result = await saveCheckInWeb(4, "late meeting");
+    assert.equal(result.ok, true);
+    assert.deepEqual(seen, {
+      url: "/api/web/checkin",
+      body: { mood: 4, blocker: "late meeting" },
+    });
+  });
+
+  it("surfaces server validation errors without fake success", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () =>
+      jsonResponse(400, { ok: false, code: "BAD_REQUEST", error: "Choose a rating from 1 to 5." });
+    const result = await saveCheckInWeb(9);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.code, "BAD_REQUEST");
+      assert.equal(result.error, "Choose a rating from 1 to 5.");
+    }
+  });
+
+  it("maps 401, malformed JSON, and offline distinctly", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => jsonResponse(401, { ok: false, code: "UNAUTHORIZED" });
+    const denied = await saveCheckInWeb(3);
+    assert.equal(denied.ok, false);
+    if (!denied.ok) assert.equal(denied.code, "UNAUTHORIZED");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => new Response("not json", { status: 200 });
+    const broken = await saveCheckInWeb(3);
+    assert.equal(broken.ok, false);
+    if (!broken.ok) assert.equal(broken.code, "UPSTREAM_ERROR");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => {
+      throw new TypeError("fetch failed");
+    };
+    const offline = await saveCheckInWeb(3);
     assert.equal(offline.ok, false);
     if (!offline.ok) assert.equal(offline.code, "OFFLINE");
   });
