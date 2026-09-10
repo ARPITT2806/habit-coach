@@ -6,8 +6,9 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { clearSessionCookie, getSession, setSessionCookie } from "@/lib/auth";
 import { authThrottled, clearAuthFails, recordAuthFail } from "@/lib/auth-rate";
+import { performPasswordReset, requestPasswordReset as requestPasswordResetCore } from "@/lib/auth-password";
+import { registerAccount } from "@/lib/auth-registration";
 import { prisma } from "@/lib/db";
-import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -15,7 +16,7 @@ const credentialsSchema = z.object({
   name: z.string().min(1).max(60).optional(),
 });
 
-export type AuthState = { error?: string };
+export type AuthState = { error?: string; notice?: string };
 
 /* ---------- Brute-force throttle (server-side, per email: see lib/auth-rate) ---------- */
 
@@ -32,38 +33,27 @@ export async function signUp(
     return { error: parsed.error.issues[0]?.message ?? "Check your details and try again." };
   }
 
-  if (authThrottled(parsed.data.email)) {
-    return { error: "Check your details and try again." };
+  const result = await registerAccount({
+    email: String(formData.get("email") ?? ""),
+    password: String(formData.get("password") ?? ""),
+    name: String(formData.get("name") ?? ""),
+  });
+  if (!result.ok) {
+    // EMAIL_TAKEN carries its specific message; every other failure stays
+    // generic (the form already enforces length client-side).
+    return { error: result.code === "EMAIL_TAKEN" ? result.error : "Check your details and try again." };
   }
 
-  const existing = await prisma.user.findUnique({
-    where: { email: parsed.data.email },
-  });
-  if (existing) return { error: "An account with that email already exists." };
-
-  const emailVerificationToken = randomBytes(32).toString("hex");
-  const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-  const user = await prisma.user.create({
-    data: {
-      email: parsed.data.email,
-      name: parsed.data.name,
-      passwordHash: await bcrypt.hash(parsed.data.password, 10),
-      emailVerificationToken,
-      emailVerificationExpires,
-      provider: "email",
-    },
-  });
-
-  const mailed = await sendVerificationEmail(user.email, emailVerificationToken);
-  if (!mailed.ok) {
-    // Never strand an unverifiable account or claim an email was sent:
-    // remove the just-created row so signup can be retried cleanly.
-    await prisma.user.delete({ where: { id: user.id } }).catch(() => undefined);
-    return { error: "Account could not be created because the verification email failed. Please try again." };
+  await setSessionCookie({ id: result.userId, email: result.email });
+  if (!result.emailSent) {
+    // Account exists but the verification mail could not be delivered: keep
+    // the session and guide toward the resend flow instead of stranding the
+    // user or forcing a duplicate signup.
+    return {
+      notice:
+        "Your account was created, but we couldn't send the verification email. Sign in, then use “Didn't get a verification email? Resend it”.",
+    };
   }
-
-  await setSessionCookie({ id: user.id, email: user.email });
   redirect("/onboarding");
 }
 
@@ -208,30 +198,12 @@ export async function verifyEmail(token: string): Promise<AuthState> {
 }
 
 export async function requestPasswordReset(email: string): Promise<AuthState> {
-  const normalizedEmail = email.trim().toLowerCase();
-  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-
-  if (!user || user.provider === "google") {
-    return {};
-  }
-
-  const resetToken = randomBytes(32).toString("hex");
-  const resetExpires = new Date(Date.now() + 60 * 60 * 1000);
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      passwordResetToken: resetToken,
-      passwordResetExpires: resetExpires,
-    },
-  });
-
-  const mailed = await sendPasswordResetEmail(user.email, resetToken);
-  if (!mailed.ok) {
-    return { error: "Could not send the reset email right now. Please try again." };
-  }
-
-  return {};
+  // Always neutral (unknown addresses, Google accounts, throttling, and
+  // mailer failures share one response) so emails cannot be enumerated.
+  await requestPasswordResetCore(email);
+  return {
+    notice: "If an account exists for that email, we'll send password reset instructions.",
+  };
 }
 
 export async function resetPassword(
@@ -257,28 +229,16 @@ export async function resetPassword(
     return { error: parsed.error.issues[0]?.message ?? "Check your details and try again." };
   }
 
-  const user = await prisma.user.findFirst({
-    where: {
-      passwordResetToken: parsed.data.token,
-      passwordResetExpires: { gt: new Date() },
-    },
-  });
-
-  if (!user) {
-    return { error: "Invalid or expired reset link." };
+  const result = await performPasswordReset(parsed.data.token, parsed.data.password);
+  if (!result.ok) {
+    return { error: result.error };
   }
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      passwordHash: await bcrypt.hash(parsed.data.password, 10),
-      passwordResetToken: null,
-      passwordResetExpires: null,
-    },
-  });
-
-  await setSessionCookie({ id: user.id, email: user.email });
-  redirect("/today");
+  const session = await getSession();
+  if (session) {
+    redirect("/today");
+  }
+  return { notice: "Password reset successfully. You can now sign in." };
 }
 
 export async function linkGoogleAccount(

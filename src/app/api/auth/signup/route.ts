@@ -1,19 +1,16 @@
-import { randomBytes } from "crypto";
-import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 import { createSessionToken } from "@/lib/auth-token";
-import { authThrottled } from "@/lib/auth-rate";
-import { prisma } from "@/lib/db";
-import { sendVerificationEmail } from "@/lib/email";
+import { registerAccount } from "@/lib/auth-registration";
 import { corsHeadersFor, corsPreflightResponse } from "@/lib/api/cors";
 
 /**
- * JSON signup for native clients. Mirrors the web signup action (validation,
- * throttle, unique-email rule, bcrypt hash, verification token) plus the
- * verification email itself. Accounts verify through the existing web flow;
- * the login route enforces the verified gate either way.
- * POST-only so the static-export Android build skips this route.
+ * JSON signup for native clients. Delegates to the shared registration core
+ * (same validation, throttle, bcrypt, verification token, and keep-unverified
+ * semantics as the web signup action). Unverified retries rotate the token
+ * and resend instead of erroring; verified addresses get EMAIL_TAKEN.
+ * Accounts verify through the existing flow; login enforces the verified
+ * gate either way. POST-only so the static-export Android build skips it.
  */
 
 const bodySchema = z.object({
@@ -58,39 +55,42 @@ export async function POST(request: Request) {
     return withCors(request, { ok: false, code: "BAD_REQUEST" }, 400);
   }
 
-  if (authThrottled(parsed.data.email)) {
+  let result: Awaited<ReturnType<typeof registerAccount>>;
+  try {
+    result = await registerAccount({
+      email: parsed.data.email,
+      password: parsed.data.password,
+      name: parsed.data.name,
+    });
+  } catch {
+    return withCors(request, { ok: false, code: "UPSTREAM_ERROR" }, 503);
+  }
+
+  if (!result.ok) {
+    if (result.code === "EMAIL_TAKEN") {
+      return withCors(request, { ok: false, code: "EMAIL_TAKEN" }, 409);
+    }
     return withCors(request, { ok: false, code: "BAD_REQUEST" }, 400);
   }
 
   try {
-    const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } });
-    if (existing) {
-      return withCors(request, { ok: false, code: "EMAIL_TAKEN" }, 409);
+    const token = await createSessionToken({ id: result.userId, email: result.email });
+    const user = { id: result.userId, email: result.email, name: parsed.data.name ?? null };
+    if (!result.emailSent) {
+      // Account kept (never stranded, never duplicated): the client guides
+      // toward the resend-verification flow instead of retrying signup.
+      return withCors(request, {
+        ok: true,
+        token,
+        user,
+        verified: false,
+        emailSent: false,
+      });
     }
-
-    const emailVerificationToken = randomBytes(32).toString("hex");
-    const user = await prisma.user.create({
-      data: {
-        email: parsed.data.email,
-        name: parsed.data.name,
-        passwordHash: await bcrypt.hash(parsed.data.password, 10),
-        emailVerificationToken,
-        emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        provider: "email",
-      },
-    });
-
-    const mailed = await sendVerificationEmail(user.email, emailVerificationToken);
-    if (!mailed.ok) {
-      await prisma.user.delete({ where: { id: user.id } }).catch(() => undefined);
-      return withCors(request, { ok: false, code: "EMAIL_SEND_FAILED" }, 502);
-    }
-
-    const token = await createSessionToken({ id: user.id, email: user.email });
     return withCors(request, {
       ok: true,
       token,
-      user: { id: user.id, email: user.email, name: user.name },
+      user,
       verified: false,
     });
   } catch {

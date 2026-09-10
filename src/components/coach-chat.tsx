@@ -14,6 +14,8 @@ import {
   clearSessionToken,
   getSessionToken,
   logIn,
+  requestPasswordResetEmail as forgotPassword,
+  resendVerificationEmail as resendVerification,
   signUp,
 } from "@/lib/api/session";
 import { parseDaysOfWeek } from "@/lib/constants";
@@ -521,26 +523,68 @@ function ConnectForm({
   onConnected: (token: string) => void;
   onError: (message: string) => void;
 }) {
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup" | "forgot">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [info, setInfo] = useState("");
+  const [lastCode, setLastCode] = useState("");
 
   async function submit() {
     if (busy) return;
-    if (!email.trim() || password.length < 8) {
+    if (!email.trim()) {
+      onError("Enter your email address.");
+      return;
+    }
+    if (mode !== "forgot" && password.length < 8) {
       onError("Enter your email and password (8+ characters).");
       return;
     }
     setBusy(true);
+    setInfo("");
     try {
+      if (mode === "forgot") {
+        const result = await forgotPassword(email.trim().toLowerCase());
+        if (result.ok) {
+          setInfo("If an account exists for that email, we'll send password reset instructions.");
+        } else {
+          onError(result.error);
+        }
+        return;
+      }
       const result =
         mode === "login"
           ? await logIn(email.trim().toLowerCase(), password)
           : await signUp(email.trim().toLowerCase(), password, name.trim() || undefined);
       if (result.ok) {
+        if (result.emailSent === false) {
+          setLastCode("EMAIL_SENT_FAILED");
+          setInfo("Account ready, but the verification email couldn't be sent. Use “Resend it” below, then verify.");
+        }
         onConnected(result.token);
+      } else {
+        setLastCode(result.code);
+        onError(result.error);
+      }
+    } catch {
+      onError("Could not reach the Habitiva server. Check your connection.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resend() {
+    if (busy) return;
+    if (!email.trim()) {
+      onError("Enter your email address first.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await resendVerification(email.trim().toLowerCase());
+      if (result.ok) {
+        setInfo("If an unverified account exists for this email, a verification email has been sent.");
       } else {
         onError(result.error);
       }
@@ -582,27 +626,90 @@ function ConnectForm({
             placeholder="you@example.com"
           />
         </label>
-        <label className="block text-sm text-muted">
-          Password
-          <input
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            type="password"
-            className="field"
-            autoComplete={mode === "login" ? "current-password" : "new-password"}
-            placeholder="8+ characters"
-          />
-        </label>
+        {mode === "forgot" ? (
+          <p className="text-xs leading-5 text-muted">
+            Enter your account email and we&apos;ll send password reset instructions.
+          </p>
+        ) : (
+          <label className="block text-sm text-muted">
+            Password
+            <input
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              type="password"
+              className="field"
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
+              placeholder="8+ characters"
+            />
+          </label>
+        )}
         <button type="button" disabled={busy} onClick={() => void submit()} className="btn-primary w-full">
-          {busy ? "Connecting..." : mode === "login" ? "Sign in" : "Create account"}
+          {busy
+            ? "Connecting..."
+            : mode === "login"
+              ? "Sign in"
+              : mode === "signup"
+                ? "Create account"
+                : "Send reset link"}
         </button>
-        <button
-          type="button"
-          onClick={() => setMode(mode === "login" ? "signup" : "login")}
-          className="w-full text-center text-xs font-semibold text-accent"
-        >
-          {mode === "login" ? "New here? Create an account" : "Have an account? Sign in"}
-        </button>
+        {mode === "login" ? (
+          <button
+            type="button"
+            onClick={() => {
+              setLastCode("");
+              setInfo("");
+              setMode("forgot");
+            }}
+            className="w-full text-center text-xs font-semibold text-accent"
+          >
+            Forgot password?
+          </button>
+        ) : null}
+        {mode !== "forgot" ? (
+          <button
+            type="button"
+            onClick={() => {
+              setLastCode("");
+              setInfo("");
+              setMode(mode === "login" ? "signup" : "login");
+            }}
+            className="w-full text-center text-xs font-semibold text-accent"
+          >
+            {mode === "login" ? "New here? Create an account" : "Have an account? Sign in"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setLastCode("");
+              setInfo("");
+              setMode("login");
+            }}
+            className="w-full text-center text-xs font-semibold text-accent"
+          >
+            Back to sign in
+          </button>
+        )}
+        {mode !== "forgot" ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void resend()}
+            className="w-full text-center text-xs font-semibold text-accent disabled:opacity-50"
+          >
+            Didn&apos;t get a verification email? Resend it
+          </button>
+        ) : null}
+        {info ? (
+          <p className="rounded-2xl bg-accent-soft px-4 py-3 text-center text-xs leading-5 text-accent">
+            {info}
+          </p>
+        ) : null}
+        {lastCode === "EMAIL_UNVERIFIED" || lastCode === "EMAIL_SENT_FAILED" ? (
+          <p className="text-center text-xs leading-5 text-muted">
+            Verify your email first — check your inbox, or use “Resend it” above.
+          </p>
+        ) : null}
       </div>
     </div>
   );

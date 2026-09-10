@@ -20,6 +20,7 @@ export function AuthForm({
   const searchParams = useSearchParams();
   const [view, setView] = useState<"menu" | "email" | "reset">("menu");
   const [error, setError] = useState<string | undefined>();
+  const [notice, setNotice] = useState<string | undefined>();
   const [pending, setPending] = useState(false);
   const [googlePending, startGoogle] = useTransition();
   const [resendState, setResendState] = useState<"idle" | "sending" | "done">("idle");
@@ -155,6 +156,7 @@ export function AuthForm({
 
   async function handleEmailSubmit(formData: FormData) {
     setError(undefined);
+    setNotice(undefined);
     setPending(true);
 
     try {
@@ -177,6 +179,9 @@ export function AuthForm({
 
         if (result && "error" in result && result.error) {
           setError(result.error);
+          setPending(false);
+        } else if (result && "notice" in result && result.notice) {
+          setNotice(result.notice);
           setPending(false);
         }
         return;
@@ -277,6 +282,12 @@ export function AuthForm({
         ) : null}
 
         <ErrorText message={error} />
+
+        {notice && !error ? (
+          <p className="rounded-2xl bg-accent-soft px-4 py-3 text-xs leading-5 text-accent">
+            {notice}
+          </p>
+        ) : null}
 
         <SubmitButton className="btn-primary w-full">
           {pending

@@ -12,6 +12,11 @@ import { fetchTodayData } from "../web-today";
 import { completeHabit } from "../web-today";
 import { saveCheckInWeb } from "../web-today";
 import { createHabitWeb } from "../web-today";
+import {
+  requestPasswordResetEmail,
+  resendVerificationEmail,
+  resetPasswordWithToken,
+} from "../session";
 
 // Minimal browser stand-ins for client modules under plain Node.
 const storage = new Map<string, string>();
@@ -566,5 +571,66 @@ describe("web habit creation", () => {
     const offline = await createHabitWeb(valid);
     assert.equal(offline.ok, false);
     if (!offline.ok) assert.equal(offline.code, "OFFLINE");
+  });
+});
+
+describe("auth recovery transport", () => {
+  it("requests password resets neutrally", async () => {
+    let seen: unknown;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      seen = { url: _url, body: JSON.parse(init.body) };
+      return jsonResponse(200, { ok: true });
+    };
+    process.env.NEXT_PUBLIC_HABITIVA_API_URL = "https://api.example.com";
+    const result = await requestPasswordResetEmail("u@x.test");
+    assert.equal(result.ok, true);
+    assert.deepEqual(seen, {
+      url: "https://api.example.com/api/auth/forgot-password",
+      body: { email: "u@x.test" },
+    });
+    delete process.env.NEXT_PUBLIC_HABITIVA_API_URL;
+  });
+
+  it("resends verification neutrally and maps failures", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => jsonResponse(200, { ok: true });
+    process.env.NEXT_PUBLIC_HABITIVA_API_URL = "https://api.example.com";
+    assert.equal((await resendVerificationEmail("u@x.test")).ok, true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => {
+      throw new TypeError("fetch failed");
+    };
+    const offline = await resendVerificationEmail("u@x.test");
+    assert.equal(offline.ok, false);
+    if (!offline.ok) assert.equal(offline.code, "OFFLINE");
+    delete process.env.NEXT_PUBLIC_HABITIVA_API_URL;
+  });
+
+  it("completes reset with a token and stores the session", async () => {
+    const session = await import("../session");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () =>
+      jsonResponse(200, {
+        ok: true,
+        token: "tok-999",
+        user: { id: "u1", email: "u@x.test", name: null },
+      });
+    process.env.NEXT_PUBLIC_HABITIVA_API_URL = "https://api.example.com";
+    const done = await resetPasswordWithToken("reset-tok", "newpassword1");
+    assert.equal(done.ok, true);
+    assert.equal(await session.getSessionToken(), "tok-999");
+    await session.logOut();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () =>
+      jsonResponse(400, { ok: false, code: "BAD_REQUEST", error: "Invalid or expired reset link." });
+    const bad = await resetPasswordWithToken("stale-tok", "newpassword1");
+    assert.equal(bad.ok, false);
+    if (!bad.ok) {
+      assert.equal(bad.code, "BAD_REQUEST");
+      assert.equal(bad.error, "Invalid or expired reset link.");
+    }
+    assert.equal(await session.getSessionToken(), null);
+    delete process.env.NEXT_PUBLIC_HABITIVA_API_URL;
   });
 });
