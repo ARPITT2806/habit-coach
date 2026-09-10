@@ -50,7 +50,7 @@ import {
 } from "@/lib/local/habits";
 import { getLocalUser, type LocalUser } from "@/lib/local/session";
 import { isNativeApp } from "@/lib/local/database";
-import { fetchTodayData } from "@/lib/api/web-today";
+import { completeHabit, fetchTodayData } from "@/lib/api/web-today";
 import {
   exactAlarmsGranted,
   notificationPermissionGranted,
@@ -254,6 +254,7 @@ function HabitCard({
   isToday,
   isUpNext,
   readOnly,
+  serverComplete,
   onSave,
   onDelete,
 }: {
@@ -262,6 +263,8 @@ function HabitCard({
   isToday: boolean;
   isUpNext: boolean;
   readOnly?: boolean;
+  /** Web server mode: only the Completed button (no skip/miss/delete yet). */
+  serverComplete?: boolean;
   onSave: (
     habitId: string,
     status: SaveStatus,
@@ -476,7 +479,7 @@ function HabitCard({
                 {formatTime(habit.preferredTime)}
               </span>
             </div>
-          ) : isToday && !readOnly ? (
+          ) : isToday && (!readOnly || serverComplete) ? (
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -487,30 +490,34 @@ function HabitCard({
                 <CheckIcon size={16} />
                 Completed
               </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => setIntent("skipped")}
-                className="btn-ghost"
-              >
-                Skipped
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => setIntent("failed")}
-                className="btn-ghost"
-              >
-                Missed
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => setShowDeleteConfirm(true)}
-                className="btn-danger"
-              >
-                Delete
-              </button>
+              {!readOnly ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => setIntent("skipped")}
+                    className="btn-ghost"
+                  >
+                    Skipped
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => setIntent("failed")}
+                    className="btn-ghost"
+                  >
+                    Missed
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="btn-danger"
+                  >
+                    Delete
+                  </button>
+                </>
+              ) : null}
             </div>
           ) : (
             <p className="text-xs font-medium uppercase tracking-wide text-muted">
@@ -1155,7 +1162,18 @@ function TodayContent() {
     reason?: string,
     reasonOther?: string,
   ) {
-    if (!nativeMode || !user) return;
+    if (!user) return;
+
+    // Web: authenticated server write via /api/web/complete (which delegates
+    // to the existing session-scoped logHabit — no userId ever leaves the
+    // browser, ownership is enforced server-side).
+    if (!nativeMode) {
+      if (status !== "completed") return;
+      const result = await completeHabit(habitId);
+      if (!result.ok) throw new Error(result.error);
+      await refresh();
+      return;
+    }
 
     await logHabit({
       userId: user.id,
@@ -1281,6 +1299,7 @@ function TodayContent() {
                 isToday={isToday}
                 isUpNext={upNextKey === plan.habit.id}
                 readOnly={!nativeMode}
+                serverComplete={!nativeMode}
                 onSave={handleHabitSave}
                 onDelete={async (habitId) => {
                   if (!nativeMode || !user) return;

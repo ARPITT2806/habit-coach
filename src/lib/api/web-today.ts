@@ -27,6 +27,14 @@ export type WebTodayResult =
 
 export const WEB_TODAY_TIMEOUT_MS = 30_000;
 
+export type CompleteHabitResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code: "UNAUTHORIZED" | "BAD_REQUEST" | "UPSTREAM_ERROR" | "OFFLINE" | "TIMEOUT";
+      error: string;
+    };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -59,8 +67,7 @@ function parseData(value: unknown): WebTodayData | null {
 
 export async function fetchTodayData(
   timeoutMs: number = WEB_TODAY_TIMEOUT_MS,
-): Promise<WebTodayResult> {
-  const controller = new AbortController();
+): Promise<WebTodayResult> {  const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
@@ -103,4 +110,63 @@ export async function fetchTodayData(
     if (data) return { ok: true, data };
   }
   return { ok: false, code: "UPSTREAM_ERROR", error: "Today is temporarily unavailable." };
+}
+
+/**
+ * Web "Completed" write. Same-origin POST — the session cookie identifies the
+ * user server-side; only the habit id travels in the body and ownership is
+ * verified there. The server upserts idempotently, so retries and double
+ * clicks cannot create duplicates.
+ */
+export async function completeHabit(
+  habitId: string,
+  timeoutMs: number = WEB_TODAY_TIMEOUT_MS,
+): Promise<CompleteHabitResult> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch("/api/web/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ habitId }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    window.clearTimeout(timer);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return {
+        ok: false,
+        code: "TIMEOUT",
+        error: "Saving is taking too long. Check your connection and retry.",
+      };
+    }
+    return {
+      ok: false,
+      code: "OFFLINE",
+      error: "Could not reach the Habitiva server. Check your connection.",
+    };
+  }
+  window.clearTimeout(timer);
+
+  if (response.status === 401) {
+    return { ok: false, code: "UNAUTHORIZED", error: "Please sign in to log habits." };
+  }
+
+  let payload: { ok?: unknown; error?: unknown; code?: unknown } = {};
+  try {
+    payload = (await response.json()) as typeof payload;
+  } catch {
+    return { ok: false, code: "UPSTREAM_ERROR", error: "Could not save that check-in." };
+  }
+
+  if (response.ok && payload.ok === true) return { ok: true };
+  if (response.status === 400) {
+    return {
+      ok: false,
+      code: "BAD_REQUEST",
+      error: typeof payload.error === "string" && payload.error ? payload.error : "Could not save that check-in.",
+    };
+  }
+  return { ok: false, code: "UPSTREAM_ERROR", error: "Could not save that check-in." };
 }
