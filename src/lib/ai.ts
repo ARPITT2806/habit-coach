@@ -131,7 +131,7 @@ interface OpenAIConfig {
 
 function getOpenAIConfig(): OpenAIConfig {
   return {
-    model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     temperature: Number(process.env.OPENAI_TEMPERATURE ?? "0.2"),
     maxTokens: Number(process.env.OPENAI_MAX_TOKENS ?? "200"),
     maxRequestsPerUserPerDay: Number(process.env.OPENAI_MAX_DAILY_REQUESTS ?? "50"),

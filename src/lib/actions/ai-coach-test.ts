@@ -42,7 +42,7 @@ export async function testCoachAnalysis(input: {
   habits: unknown;
   completions: unknown;
 }): Promise<CoachTestResult> {
-  const model = process.env.OPENAI_MODEL ?? "gpt-5.6-luna";
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
   const startedAt = Date.now();
   const fail = (error: string, context?: CoachContext): CoachTestResult => ({
     ok: false,

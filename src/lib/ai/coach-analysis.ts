@@ -92,7 +92,7 @@ export async function chatWithCoach(
   message: string,
   history: ChatTurn[],
 ): Promise<ChatOutcome> {
-  const model = process.env.OPENAI_MODEL ?? "gpt-5.6-luna";
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
   const startedAt = Date.now();
 
   const apiKey = process.env.OPENAI_API_KEY;
@@ -172,7 +172,7 @@ const SYSTEM_PROMPT = [
  * minimal CoachContext produced by buildCoachContext.
  */
 export async function analyzeHabits(context: CoachContext): Promise<AnalysisOutcome> {
-  const model = process.env.OPENAI_MODEL ?? "gpt-5.6-luna";
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
   const startedAt = Date.now();
 
   const apiKey = process.env.OPENAI_API_KEY;

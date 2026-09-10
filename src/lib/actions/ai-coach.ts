@@ -103,7 +103,7 @@ export async function sendCoachMessage(input: {
       ok: true,
       reply:
         "You don't have any active habits yet, so there's nothing for me to analyze. Add your first habit and log a few days — then ask me anything about your progress, streaks, or routine.",
-      model: process.env.OPENAI_MODEL ?? "gpt-5.6-luna",
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       latencyMs: Date.now() - startedAt,
     };
   }
