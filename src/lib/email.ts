@@ -37,6 +37,7 @@ export function passwordResetLink(token: string): string {
 async function sendEmail(to: string, subject: string, html: string, text: string): Promise<EmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
+    console.error("[habitiva-email] missing RESEND_API_KEY");
     return { ok: false, error: "Email delivery is not configured." };
   }
 
@@ -50,10 +51,21 @@ async function sendEmail(to: string, subject: string, html: string, text: string
       text,
     });
     if (error) {
+      // Safe diagnostics only: Resend's message can echo the recipient
+      // address, so log just the machine-readable code. Never log the
+      // message, the address, tokens, or the API key.
+      const details = error as { statusCode?: unknown; name?: unknown };
+      console.error("[habitiva-email] resend rejected", {
+        statusCode: typeof details.statusCode === "number" ? details.statusCode : null,
+        name: typeof details.name === "string" ? details.name : null,
+      });
       return { ok: false, error: "Email delivery was rejected. Please try again." };
     }
     return { ok: true };
-  } catch {
+  } catch (err) {
+    console.error("[habitiva-email] resend threw", {
+      name: err instanceof Error ? err.name : "unknown",
+    });
     return { ok: false, error: "Email delivery failed. Please try again." };
   }
 }
