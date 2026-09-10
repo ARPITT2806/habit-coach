@@ -1,16 +1,32 @@
 /**
- * Minimal CORS for the production Coach API. Same-origin browser calls need
- * no headers; cross-origin callers (the future Capacitor APK) must be
- * explicitly allowlisted via COACH_ALLOWED_ORIGINS. Bearer auth means no
- * credentialed requests, so a reflected-but-validated origin is sufficient.
- * Documented P1 origins: capacitor://localhost, http://localhost.
+ * Minimal CORS for the production Coach/API routes. Same-origin browser calls
+ * need no headers; cross-origin callers (the Capacitor APK) must be
+ * allowlisted. Bearer auth means no credentialed requests, so a
+ * reflected-but-validated origin is sufficient.
+ *
+ * Origin set (exact match, no wildcards):
+ * - COACH_ALLOWED_ORIGINS env (comma-separated extras, e.g. dev servers)
+ * - Built-in local-app origins: the Capacitor native shells. Android uses
+ *   https://localhost by default (CapConfig androidScheme), iOS/macOS use
+ *   capacitor://localhost, and http://localhost covers local dev shells.
+ *   These can only originate from software running on the user's own
+ *   device/machine — never from a remote website (whose Origin would be its
+ *   own domain) — so listing them explicitly does not open the API to the web.
  */
 
+export const LOCAL_APP_ORIGINS = [
+  "capacitor://localhost",
+  "http://localhost",
+  "https://localhost",
+];
+
 export function allowedOrigins(): string[] {
-  return (process.env.COACH_ALLOWED_ORIGINS ?? "")
+  const fromEnv = (process.env.COACH_ALLOWED_ORIGINS ?? "")
     .split(",")
     .map((origin) => origin.trim())
     .filter((origin) => origin.length > 0);
+  const merged = new Set<string>([...fromEnv, ...LOCAL_APP_ORIGINS]);
+  return [...merged];
 }
 
 export function corsHeadersFor(request: Request): Record<string, string> {

@@ -12,7 +12,7 @@ import {
 } from "../coach-service";
 import type { ChatTurn } from "../coach-analysis";
 import type { CoachContext } from "../coach-context";
-import { corsHeadersFor, corsPreflightResponse } from "../../api/cors";
+import { LOCAL_APP_ORIGINS, allowedOrigins, corsHeadersFor, corsPreflightResponse } from "../../api/cors";
 
 const LIMITS = { perHour: 2, perDay: 5 };
 
@@ -253,6 +253,43 @@ describe("CORS boundaries", () => {
     );
     assert.ok(response);
     assert.equal(response?.status, 403);
+  });
+
+  it("permits the native Capacitor shells (Android https, iOS capacitor, dev http)", async () => {
+    assert.deepEqual(LOCAL_APP_ORIGINS, [
+      "capacitor://localhost",
+      "http://localhost",
+      "https://localhost",
+    ]);
+    for (const origin of LOCAL_APP_ORIGINS) {
+      const response = corsPreflightResponse(
+        new Request("https://api.test/x", {
+          method: "OPTIONS",
+          headers: {
+            Origin: origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Authorization, Content-Type",
+          },
+        }),
+      );
+      assert.ok(response, origin);
+      assert.equal(response?.status, 204, origin);
+      assert.equal(response?.headers.get("Access-Control-Allow-Origin"), origin);
+    }
+  });
+
+  it("keeps env-configured extras alongside the built-in origins", () => {
+    const previous = process.env.COACH_ALLOWED_ORIGINS;
+    process.env.COACH_ALLOWED_ORIGINS = "https://dev.example.com";
+    try {
+      const allowed = allowedOrigins();
+      assert.ok(allowed.includes("https://dev.example.com"));
+      for (const origin of LOCAL_APP_ORIGINS) assert.ok(allowed.includes(origin));
+      assert.ok(!allowed.includes("https://evil.test"));
+    } finally {
+      if (previous === undefined) delete process.env.COACH_ALLOWED_ORIGINS;
+      else process.env.COACH_ALLOWED_ORIGINS = previous;
+    }
   });
 
   it("ignores non-preflight requests", () => {
