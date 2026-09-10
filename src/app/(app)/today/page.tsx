@@ -263,7 +263,7 @@ function HabitCard({
   isToday: boolean;
   isUpNext: boolean;
   readOnly?: boolean;
-  /** Web server mode: only the Completed button (no skip/miss/delete yet). */
+  /** Web server mode: Completed + Skip/Miss with reasons (no delete yet). */
   serverComplete?: boolean;
   onSave: (
     habitId: string,
@@ -490,7 +490,7 @@ function HabitCard({
                 <CheckIcon size={16} />
                 Completed
               </button>
-              {!readOnly ? (
+              {!readOnly || serverComplete ? (
                 <>
                   <button
                     type="button"
@@ -508,6 +508,9 @@ function HabitCard({
                   >
                     Missed
                   </button>
+                </>
+              ) : null}
+              {!readOnly ? (
                   <button
                     type="button"
                     disabled={saving}
@@ -516,7 +519,6 @@ function HabitCard({
                   >
                     Delete
                   </button>
-                </>
               ) : null}
             </div>
           ) : (
@@ -1166,10 +1168,14 @@ function TodayContent() {
 
     // Web: authenticated server write via /api/web/complete (which delegates
     // to the existing session-scoped logHabit — no userId ever leaves the
-    // browser, ownership is enforced server-side).
+    // browser, ownership and reason validity are enforced server-side).
     if (!nativeMode) {
-      if (status !== "completed") return;
-      const result = await completeHabit(habitId);
+      if (status === "deleted") return;
+      const result = await completeHabit(habitId, {
+        status,
+        ...(reason !== undefined ? { reason } : {}),
+        ...(reasonOther !== undefined ? { reasonOther } : {}),
+      });
       if (!result.ok) throw new Error(result.error);
       await refresh();
       return;

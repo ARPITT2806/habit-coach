@@ -112,14 +112,22 @@ export async function fetchTodayData(
   return { ok: false, code: "UPSTREAM_ERROR", error: "Today is temporarily unavailable." };
 }
 
+export type HabitOutcome = {
+  status: "completed" | "skipped" | "failed";
+  reason?: string;
+  reasonOther?: string;
+};
+
 /**
- * Web "Completed" write. Same-origin POST — the session cookie identifies the
- * user server-side; only the habit id travels in the body and ownership is
+ * Web habit-outcome write (completed / skipped / failed). Same-origin POST —
+ * the session cookie identifies the user server-side; only the habit id,
+ * status, and reason travel in the body, with ownership and reason validity
  * verified there. The server upserts idempotently, so retries and double
  * clicks cannot create duplicates.
  */
 export async function completeHabit(
   habitId: string,
+  outcome: HabitOutcome = { status: "completed" },
   timeoutMs: number = WEB_TODAY_TIMEOUT_MS,
 ): Promise<CompleteHabitResult> {
   const controller = new AbortController();
@@ -129,7 +137,12 @@ export async function completeHabit(
     response = await fetch("/api/web/complete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ habitId }),
+      body: JSON.stringify({
+        habitId,
+        status: outcome.status,
+        ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}),
+        ...(outcome.reasonOther !== undefined ? { reasonOther: outcome.reasonOther } : {}),
+      }),
       signal: controller.signal,
     });
   } catch (err) {

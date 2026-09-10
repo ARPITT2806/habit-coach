@@ -336,7 +336,37 @@ describe("web habit completion", () => {
     };
     const result = await completeHabit("habit-123");
     assert.equal(result.ok, true);
-    assert.deepEqual(seen, { url: "/api/web/complete", body: { habitId: "habit-123" } });
+    assert.deepEqual(seen, {
+      url: "/api/web/complete",
+      body: { habitId: "habit-123", status: "completed" },
+    });
+  });
+
+  it("sends skip/miss outcomes with reasons", async () => {
+    const seen: unknown[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      seen.push(JSON.parse(init.body));
+      return jsonResponse(200, { ok: true });
+    };
+    assert.equal(
+      (await completeHabit("h1", { status: "skipped", reason: "no_time" })).ok,
+      true,
+    );
+    assert.equal(
+      (
+        await completeHabit("h1", {
+          status: "failed",
+          reason: "other",
+          reasonOther: "power outage",
+        })
+      ).ok,
+      true,
+    );
+    assert.deepEqual(seen, [
+      { habitId: "h1", status: "skipped", reason: "no_time" },
+      { habitId: "h1", status: "failed", reason: "other", reasonOther: "power outage" },
+    ]);
   });
 
   it("surfaces server validation errors without fake success", async () => {
