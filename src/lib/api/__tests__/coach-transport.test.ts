@@ -8,6 +8,7 @@ import {
   sendCoachTurn,
   grantRemoteConsent,
 } from "../coach-client";
+import { fetchTodayData } from "../web-today";
 
 // Minimal browser stand-ins for client modules under plain Node.
 const storage = new Map<string, string>();
@@ -264,6 +265,61 @@ describe("coach history restore", () => {
       throw new TypeError("fetch failed");
     };
     const offline = await fetchCoachHistory("https://api.example.com", "tok");
+    assert.equal(offline.ok, false);
+    if (!offline.ok) assert.equal(offline.code, "OFFLINE");
+  });
+});
+
+describe("web today transport", () => {
+  const validData = {
+    user: { id: "u1", email: "u@x.test", name: null, onboardedAt: null, createdAt: "", updatedAt: "" },
+    goals: [],
+    habits: [{ id: "h1", title: "Walk" }],
+    completions: [],
+    checkIns: [],
+    date: "2026-09-10",
+  };
+
+  it("delivers validated server data", async () => {
+    let seenUrl = "";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async (url: string) => {
+      seenUrl = url;
+      return jsonResponse(200, { ok: true, data: validData });
+    };
+    const result = await fetchTodayData();
+    assert.equal(result.ok, true);
+    assert.equal(seenUrl, "/api/web/today");
+    if (result.ok) assert.equal(result.data.user.id, "u1");
+  });
+
+  it("rejects malformed payloads instead of passing them to page state", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () =>
+      jsonResponse(200, { ok: true, data: { user: { id: 42 }, habits: "nope" } });
+    const result = await fetchTodayData();
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, "UPSTREAM_ERROR");
+  });
+
+  it("maps 401, malformed JSON, and offline distinctly", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => jsonResponse(401, { ok: false, code: "UNAUTHORIZED" });
+    const denied = await fetchTodayData();
+    assert.equal(denied.ok, false);
+    if (!denied.ok) assert.equal(denied.code, "UNAUTHORIZED");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => new Response("not json", { status: 200 });
+    const broken = await fetchTodayData();
+    assert.equal(broken.ok, false);
+    if (!broken.ok) assert.equal(broken.code, "UPSTREAM_ERROR");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => {
+      throw new TypeError("fetch failed");
+    };
+    const offline = await fetchTodayData();
     assert.equal(offline.ok, false);
     if (!offline.ok) assert.equal(offline.code, "OFFLINE");
   });

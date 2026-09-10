@@ -12,6 +12,9 @@ export type SessionUser = {
   email: string;
 };
 
+/** Name of the httpOnly web session cookie (see lib/auth). */
+export const SESSION_COOKIE_NAME = "north_session";
+
 function secretKey() {
   const secret = process.env.AUTH_SECRET;
   if (!secret) {

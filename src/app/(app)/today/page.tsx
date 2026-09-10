@@ -49,6 +49,8 @@ import {
   type LocalHabit,
 } from "@/lib/local/habits";
 import { getLocalUser, type LocalUser } from "@/lib/local/session";
+import { isNativeApp } from "@/lib/local/database";
+import { fetchTodayData } from "@/lib/api/web-today";
 import {
   exactAlarmsGranted,
   notificationPermissionGranted,
@@ -251,6 +253,7 @@ function HabitCard({
   log,
   isToday,
   isUpNext,
+  readOnly,
   onSave,
   onDelete,
 }: {
@@ -258,6 +261,7 @@ function HabitCard({
   log: LocalCompletion | null;
   isToday: boolean;
   isUpNext: boolean;
+  readOnly?: boolean;
   onSave: (
     habitId: string,
     status: SaveStatus,
@@ -472,7 +476,7 @@ function HabitCard({
                 {formatTime(habit.preferredTime)}
               </span>
             </div>
-          ) : isToday ? (
+          ) : isToday && !readOnly ? (
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -560,9 +564,11 @@ function HabitCard({
 
 function CheckInCard({
   existing,
+  readOnly,
   onSave,
 }: {
   existing: LocalCheckIn | null;
+  readOnly?: boolean;
   onSave: (mood: number, blocker: string) => Promise<void>;
 }) {
   const [mood, setMood] = useState(existing?.mood ?? 0);
@@ -592,6 +598,19 @@ function CheckInCard({
   }
 
   const moodLabels = ["Rough", "Okay", "Fine", "Good", "Great"];
+
+  if (readOnly) {
+    if (!existing) return null;
+    return (
+      <section className="card animate-rise p-6">
+        <p className="eyebrow">Evening check-in</p>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          You rated the day {existing.mood} of 5
+          {existing.blocker ? ` — blocking: ${existing.blocker}` : "."}
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="card animate-rise p-6">
@@ -654,11 +673,13 @@ function CheckInCard({
 
 function AddHabit({
   user,
+  readOnly,
   onCreated,
   open,
   onOpenChange,
 }: {
   user: LocalUser;
+  readOnly?: boolean;
   onCreated: () => Promise<void>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -667,6 +688,14 @@ function AddHabit({
 
   // Add Habit → Back returns to Today, never to the home screen.
   useModalBackHandler(open, () => onOpenChange(false));
+
+  if (readOnly) {
+    return (
+      <p className="mt-4 text-center text-xs leading-5 text-muted">
+        Habit setup lives in the app for now — this view is read-only.
+      </p>
+    );
+  }
 
   async function submit(values: HabitFormValues) {
     try {
@@ -940,6 +969,7 @@ function TodayContent() {
   const [checkIns, setCheckIns] = useState<LocalCheckIn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [needsAuth, setNeedsAuth] = useState(false);
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [addOpen, setAddOpen] = useState(false);
 
@@ -949,7 +979,37 @@ function TodayContent() {
   const searchParams = useSearchParams();
   const addRequested = searchParams.get("add") === "1";
 
+  // Native app: local SQLite (unchanged). Web: read-only server data —
+  // writes stay native-only for this phase.
+  const nativeMode = isNativeApp();
+
   const refresh = useCallback(async () => {
+    if (!isNativeApp()) {
+      const result = await fetchTodayData();
+      if (!result.ok) {
+        if (result.code === "UNAUTHORIZED") {
+          setNeedsAuth(true);
+          setUser(null);
+          return;
+        }
+        throw new Error(result.error);
+      }
+      setNeedsAuth(false);
+      setUser(result.data.user);
+      // Server rows carry no device-only fields; default them for the UI.
+      setHabits(
+        result.data.habits.map((habit) => ({
+          ...habit,
+          consequence: null,
+          isImportant: false,
+        })),
+      );
+      setCompletions(result.data.completions);
+      setGoals(result.data.goals);
+      setCheckIns(result.data.checkIns);
+      return;
+    }
+
     const localUser = await getLocalUser();
     const [localHabits, localCompletions, localGoals, localCheckIns] =
       await Promise.all([
@@ -1095,7 +1155,7 @@ function TodayContent() {
     reason?: string,
     reasonOther?: string,
   ) {
-    if (!user) return;
+    if (!nativeMode || !user) return;
 
     await logHabit({
       userId: user.id,
@@ -1110,7 +1170,7 @@ function TodayContent() {
   }
 
   async function handleCheckInSave(mood: number, blocker: string) {
-    if (!user) return;
+    if (!nativeMode || !user) return;
 
     await saveCheckIn({
       userId: user.id,
@@ -1141,6 +1201,23 @@ function TodayContent() {
           body={error}
           icon={<SparkIcon size={22} />}
         />
+      </main>
+    );
+  }
+
+  if (needsAuth) {
+    return (
+      <main>
+        <EmptyState
+          title="Sign in to see Today"
+          body="Your habits live in your Habitiva account. Sign in to load them here."
+          icon={<SparkIcon size={22} />}
+        />
+        <div className="mt-4 text-center">
+          <a href="/login" className="btn-primary inline-block">
+            Sign in
+          </a>
+        </div>
       </main>
     );
   }
@@ -1203,8 +1280,10 @@ function TodayContent() {
                 log={plan.log}
                 isToday={isToday}
                 isUpNext={upNextKey === plan.habit.id}
+                readOnly={!nativeMode}
                 onSave={handleHabitSave}
                 onDelete={async (habitId) => {
+                  if (!nativeMode || !user) return;
                   await deleteHabit(user.id, habitId);
                   refresh();
                   syncAllReminders().catch(() => {
@@ -1281,13 +1360,14 @@ function TodayContent() {
 
       {isToday ? (
         <section className="mt-7">
-          <CheckInCard key={today} existing={todayCheckIn} onSave={handleCheckInSave} />
+          <CheckInCard key={today} existing={todayCheckIn} readOnly={!nativeMode} onSave={handleCheckInSave} />
         </section>
       ) : null}
 
       <section ref={addSectionRef} className="mt-7 scroll-mt-6">
         <AddHabit
           user={user}
+          readOnly={!nativeMode}
           onCreated={refresh}
           open={addOpen}
           onOpenChange={setAddOpen}

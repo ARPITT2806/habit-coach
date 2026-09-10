@@ -7,6 +7,8 @@ import { CoachChat } from "@/components/coach-chat";
 import { CommandInput } from "@/components/command-input";
 import { ArrowIcon, Chip, ProgressRing, SparkIcon } from "@/components/ui";
 import { FAILURE_REASONS } from "@/lib/constants";
+import { fetchTodayData } from "@/lib/api/web-today";
+import { isNativeApp } from "@/lib/local/database";
 import {
   getCompletions,
   getHabits,
@@ -74,12 +76,38 @@ export default function CoachPage() {
   const [completions, setCompletions] = useState<LocalCompletion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [needsAuth, setNeedsAuth] = useState(false);
 
   useEffect(() => {
     let alive = true;
 
     (async () => {
       try {
+        // Web: read-only server data (same payload the Coach grounds on).
+        // Native: local SQLite (unchanged).
+        if (!isNativeApp()) {
+          const result = await fetchTodayData();
+          if (!alive) return;
+          if (!result.ok) {
+            if (result.code === "UNAUTHORIZED") {
+              setNeedsAuth(true);
+            } else {
+              setError(result.error);
+            }
+            return;
+          }
+          setUserId(result.data.user.id);
+          setHabits(
+            result.data.habits.map((habit) => ({
+              ...habit,
+              consequence: null,
+              isImportant: false,
+            })),
+          );
+          setCompletions(result.data.completions);
+          return;
+        }
+
         const user = await getLocalUser();
 
         const [localHabits, localCompletions] = await Promise.all([
@@ -243,6 +271,23 @@ export default function CoachPage() {
           body={error}
           icon={<SparkIcon size={22} />}
         />
+      </main>
+    );
+  }
+
+  if (needsAuth) {
+    return (
+      <main>
+        <EmptyState
+          title="Sign in for AI coaching"
+          body="Your Coach reads your Habitiva data from your account. Sign in to start."
+          icon={<SparkIcon size={22} />}
+        />
+        <div className="mt-4 text-center">
+          <a href="/login" className="btn-primary inline-block">
+            Sign in
+          </a>
+        </div>
       </main>
     );
   }

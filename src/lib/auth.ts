@@ -3,12 +3,13 @@ import { cookies } from "next/headers";
 import {
   createSessionToken,
   readSessionToken,
+  SESSION_COOKIE_NAME,
   type SessionUser,
 } from "./auth-token";
 
-export { createSessionToken, readSessionToken, type SessionUser };
+export { createSessionToken, readSessionToken, SESSION_COOKIE_NAME, type SessionUser };
 
-const COOKIE = "north_session";
+const COOKIE = SESSION_COOKIE_NAME;
 
 export async function setSessionCookie(user: SessionUser) {
   const token = await createSessionToken(user);
