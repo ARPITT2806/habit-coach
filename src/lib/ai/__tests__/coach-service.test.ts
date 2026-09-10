@@ -411,3 +411,82 @@ describe("runCoachTurn multi-user isolation", () => {
     assert.equal(store.convs.size, 0);
   });
 });
+
+describe("runCoachTurn device-supplied context", () => {
+  const deviceData = {
+    habits: [
+      {
+        title: "Device walk",
+        frequencyPerWeek: 7,
+        daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+        preferredTime: "07:00",
+        difficulty: "easy",
+      },
+    ],
+    completions: [{ habit: 0, date: "2026-09-10", status: "completed" }],
+  };
+
+  it("grounds the model on device rows without touching Prisma loaders", async () => {
+    const store = fakeStore();
+    let seenHabits: string[] = [];
+    const capture = async (context: CoachContext) => {
+      seenHabits = context.habits.map((h) => h.title);
+      return { ok: true as const, reply: "grounded", model: "m", latencyMs: 1 };
+    };
+    const result = await runCoachTurn(
+      store,
+      LIMITS,
+      "Bearer good-token",
+      "how am I doing?",
+      capture,
+      Date.now(),
+      deviceData,
+    );
+    assert.equal(result.ok, true);
+    assert.deepEqual(seenHabits, ["Device walk"]);
+    assert.deepEqual(store.calls.habitsFor, []);
+    // Persistence still runs for the authenticated user.
+    assert.equal(store.convs.get("user-1")?.messages.length, 2);
+  });
+
+  it("falls back to Prisma data when no device rows are supplied", async () => {
+    const store = fakeStore();
+    let seenHabits: string[] = [];
+    const capture = async (context: CoachContext) => {
+      seenHabits = context.habits.map((h) => h.title);
+      return { ok: true as const, reply: "ok", model: "m", latencyMs: 1 };
+    };
+    await runCoachTurn(store, LIMITS, "Bearer good-token", "hi", capture, Date.now(), {
+      habits: [],
+      completions: [],
+    });
+    assert.deepEqual(seenHabits, ["Walk"]);
+    assert.deepEqual(store.calls.habitsFor, ["user-1"]);
+  });
+
+  it("drops out-of-range device completion indices", async () => {
+    const store = fakeStore();
+    let seenEvents = -1;
+    const capture = async (context: CoachContext) => {
+      seenEvents = context.totalEvents;
+      return { ok: true as const, reply: "ok", model: "m", latencyMs: 1 };
+    };
+    const result = await runCoachTurn(
+      store,
+      LIMITS,
+      "Bearer good-token",
+      "hi",
+      capture,
+      Date.now(),
+      {
+        habits: deviceData.habits,
+        completions: [
+          { habit: 0, date: "2026-09-10", status: "completed" },
+          { habit: 7, date: "2026-09-10", status: "completed" },
+        ],
+      },
+    );
+    assert.equal(result.ok, true);
+    assert.equal(seenEvents, 1);
+  });
+});

@@ -4,6 +4,10 @@ import { chatWithCoach } from "@/lib/ai/coach-analysis";
 import {
   runCoachTurn,
 } from "@/lib/ai/coach-service";
+import {
+  minimalCompletionsSchema,
+  minimalHabitsSchema,
+} from "@/lib/ai/coach-payload";
 import { prismaCoachStore } from "@/lib/api/coach-store";
 import { corsHeadersFor, corsPreflightResponse } from "@/lib/api/cors";
 
@@ -12,9 +16,12 @@ import { corsHeadersFor, corsPreflightResponse } from "@/lib/api/cors";
  * static-export collector, so build:android stays green WITHOUT force-static
  * (which would neuter the Request object at runtime). Authenticated via
  * Authorization: Bearer <session JWT>; identity comes ONLY from the verified
- * token, habit data ONLY from Prisma, conversation history ONLY from the
- * persisted CoachConversation (client-supplied history is accepted for
- * backward compatibility but never used for context or display).
+ * token, conversation history ONLY from the persisted CoachConversation
+ * (client-supplied history is accepted for backward compatibility but never
+ * used for context or display). Habit context comes from Prisma by default;
+ * native clients whose habits live on-device may supply the same validated
+ * minimal rows the dev action accepts — statistics are still recomputed
+ * server-side and the payload carries no ids or user info.
  */
 
 const bodySchema = z.object({
@@ -24,6 +31,8 @@ const bodySchema = z.object({
     .max(10)
     .optional()
     .default([]),
+  habits: minimalHabitsSchema.optional().default([]),
+  completions: minimalCompletionsSchema.optional().default([]),
 });
 
 function limits() {
@@ -74,6 +83,10 @@ export async function POST(request: Request) {
       request.headers.get("authorization"),
       parsed.data.message,
       chatWithCoach,
+      Date.now(),
+      parsed.data.habits.length > 0
+        ? { habits: parsed.data.habits, completions: parsed.data.completions }
+        : null,
     );
   } catch {
     return withCors(

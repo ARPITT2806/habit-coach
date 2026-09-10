@@ -60,12 +60,30 @@ const CODE_MESSAGES: Record<string, string> = {
   UPSTREAM_ERROR: "The coach couldn't be reached just now. Check your connection and retry.",
 };
 
+export type CoachPayloadHabit = {
+  title: string;
+  frequencyPerWeek: number;
+  daysOfWeek: number[];
+  preferredTime: string;
+  difficulty: string;
+};
+
+export type CoachPayloadCompletion = {
+  habit: number;
+  date: string;
+  status: string;
+};
+
 export async function sendCoachTurn(
   baseUrl: string,
   token: string,
   message: string,
   history: CoachHistoryTurn[],
   timeoutMs: number = COACH_TIMEOUT_MS,
+  deviceData?: {
+    habits: CoachPayloadHabit[];
+    completions: CoachPayloadCompletion[];
+  },
 ): Promise<CoachRemoteResult> {
   const trimmed = message.trim();
   if (!trimmed) {
@@ -94,7 +112,16 @@ export async function sendCoachTurn(
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ message: trimmed.slice(0, 1000), history: bounded }),
+      body: JSON.stringify({
+        message: trimmed.slice(0, 1000),
+        history: bounded,
+        // Native clients ground the coach on on-device rows (validated
+        // server-side, statistics recomputed there); Prisma-backed callers
+        // omit this and the server loads their data instead.
+        ...(deviceData && deviceData.habits.length > 0
+          ? { habits: deviceData.habits, completions: deviceData.completions }
+          : {}),
+      }),
       signal: controller.signal,
     });
   } catch (err) {

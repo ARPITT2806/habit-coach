@@ -224,7 +224,12 @@ export function CoachChat({
     async (next: Message[], message: string) => {
       if (!backendUrl || !token) return;
       const history: CoachHistoryTurn[] = next.slice(-10);
-      const result = await sendCoachTurn(backendUrl, token, message, history);
+      // On-device rows ground the server coach (same minimal shapes the dev
+      // action accepts); the server revalidates and recomputes everything.
+      const result = await sendCoachTurn(backendUrl, token, message, history, undefined, {
+        habits: payload.habits,
+        completions: payload.completions,
+      });
       if (result.ok) {
         setMessages([...next, { role: "coach" as const, content: result.message }]);
         return;
@@ -251,7 +256,7 @@ export function CoachChat({
       }
       setError(result.error);
     },
-    [backendUrl, token],
+    [backendUrl, token, payload],
   );
 
   const sendDev = useCallback(
@@ -300,6 +305,11 @@ export function CoachChat({
         await sendRemote(next, message);
       } else if (devMode) {
         await sendDev(next, message);
+      } else if (!backendUrl) {
+        setDraft(message);
+        setError(
+          "AI coaching isn't configured in this build, so it can't reach the Habitiva server. Your habits and tracking keep working fully offline.",
+        );
       } else {
         setDraft(message);
         setError(

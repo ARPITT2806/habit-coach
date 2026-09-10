@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { getBackendUrl, setBackendUrlOverride } from "../backend-url";
+import { getBackendUrl, setBackendUrlOverride, PRODUCTION_API_URL } from "../backend-url";
 import {
   fetchCoachHistory,
   parseRetryAfter,
@@ -58,6 +58,19 @@ describe("backend URL resolution", () => {
 
   it("rejects non-URL values", () => {
     process.env.NEXT_PUBLIC_HABITIVA_API_URL = "not-a-url";
+    assert.equal(getBackendUrl(), null);
+  });
+
+  it("defaults to the production API on native builds without extra config", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).androidBridge = {};
+    try {
+      assert.equal(getBackendUrl(), PRODUCTION_API_URL);
+      assert.ok(PRODUCTION_API_URL.startsWith("https://"));
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (globalThis as any).androidBridge;
+    }
     assert.equal(getBackendUrl(), null);
   });
 });
@@ -165,6 +178,34 @@ describe("coach transport", () => {
     const empty = await sendCoachTurn("https://api.example.com", "tok", "   ", []);
     assert.equal(empty.ok, false);
     assert.equal(fetched, false);
+  });
+
+  it("attaches validated device rows for native grounding, omits them otherwise", async () => {
+    const seen: unknown[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      seen.push(JSON.parse(init.body));
+      return jsonResponse(200, { ok: true, message: "ok" });
+    };
+    const deviceData = {
+      habits: [
+        {
+          title: "Walk",
+          frequencyPerWeek: 7,
+          daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+          preferredTime: "07:00",
+          difficulty: "easy",
+        },
+      ],
+      completions: [{ habit: 0, date: "2026-09-10", status: "completed" }],
+    };
+    assert.equal(
+      (await sendCoachTurn("https://api.example.com", "tok", "hi", [], undefined, deviceData)).ok,
+      true,
+    );
+    assert.equal((await sendCoachTurn("https://api.example.com", "tok", "hi", [])).ok, true);
+    assert.deepEqual(seen[0], { message: "hi", history: [], ...deviceData });
+    assert.deepEqual(seen[1], { message: "hi", history: [] });
   });
 
   it("stores the token on login and clears it on logout", async () => {

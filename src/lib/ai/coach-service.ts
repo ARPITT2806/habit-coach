@@ -113,6 +113,14 @@ function friendlyUpstreamError(message: string): string {
  * One persisted Coach turn. History is loaded from the store (keyed ONLY by
  * the authenticated userId) — the client never supplies conversation content
  * for context, so it cannot forge, read, or pollute another user's history.
+ *
+ * Habit context comes from Prisma by default. Native clients (whose habits
+ * live in on-device SQLite) may instead supply their own already-minimal
+ * rows via `clientData`: the route validates them with the same schemas as
+ * the dev action, all statistics are still recomputed server-side, and the
+ * payload carries no ids or user info — only titles, schedules, and
+ * statuses. Identity, consent, rate limits, and persistence always come from
+ * the verified token, never from the client.
  */
 export async function runCoachTurn(
   store: CoachStore,
@@ -125,6 +133,10 @@ export async function runCoachTurn(
     turns: ChatTurn[],
   ) => Promise<ChatOutcome> = chatWithCoach,
   nowMs: number = Date.now(),
+  clientData?: {
+    habits: CoachHabitInput[];
+    completions: CoachCompletionInput[];
+  } | null,
 ): Promise<CoachApiResult> {
   const token = parseBearerToken(authHeader);
   if (!token) {
@@ -188,8 +200,8 @@ export async function runCoachTurn(
   ]);
 
   const [habitRows, completionRows, conversation] = await Promise.all([
-    store.loadHabits(userId),
-    store.loadCompletions(userId),
+    clientData && clientData.habits.length > 0 ? [] : store.loadHabits(userId),
+    clientData && clientData.habits.length > 0 ? [] : store.loadCompletions(userId),
     store.ensureConversation(userId),
   ]);
 
@@ -206,18 +218,37 @@ export async function runCoachTurn(
   await store.saveMessage(conversation.id, "user", cleanMessage);
 
   const indexById = new Map(habitRows.map((habit, index) => [habit.id, index]));
-  const habitInputs: CoachHabitInput[] = habitRows.map((habit) => ({
-    title: habit.title,
-    frequencyPerWeek: habit.frequencyPerWeek,
-    daysOfWeek: habit.daysOfWeek,
-    preferredTime: habit.preferredTime,
-    difficulty: habit.difficulty,
-  }));
+  // Device-supplied rows arrive pre-shaped (validated at the route boundary);
+  // server rows are mapped to the identical minimal input shape.
+  const habitInputs: CoachHabitInput[] =
+    clientData && clientData.habits.length > 0
+      ? clientData.habits
+      : habitRows.map((habit) => ({
+          title: habit.title,
+          frequencyPerWeek: habit.frequencyPerWeek,
+          daysOfWeek: habit.daysOfWeek,
+          preferredTime: habit.preferredTime,
+          difficulty: habit.difficulty,
+        }));
   const completionInputs: CoachCompletionInput[] = [];
-  for (const log of completionRows) {
-    const index = indexById.get(log.habitId);
-    if (index === undefined) continue;
-    completionInputs.push({ habit: index, date: log.date, status: log.status });
+  if (clientData && clientData.habits.length > 0) {
+    for (const log of clientData.completions) {
+      if (
+        Number.isInteger(log.habit) &&
+        log.habit >= 0 &&
+        log.habit < habitInputs.length &&
+        typeof log.date === "string" &&
+        typeof log.status === "string"
+      ) {
+        completionInputs.push({ habit: log.habit, date: log.date, status: log.status });
+      }
+    }
+  } else {
+    for (const log of completionRows) {
+      const index = indexById.get(log.habitId);
+      if (index === undefined) continue;
+      completionInputs.push({ habit: index, date: log.date, status: log.status });
+    }
   }
 
   const context = buildCoachContext(habitInputs, completionInputs);
