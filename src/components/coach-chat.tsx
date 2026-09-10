@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendCoachMessage } from "@/lib/actions/ai-coach";
 import { getBackendUrl } from "@/lib/api/backend-url";
 import {
+  fetchCoachHistory,
   grantRemoteConsent,
   sendCoachTurn,
   type CoachHistoryTurn,
@@ -31,6 +32,41 @@ const EXAMPLE_PROMPTS = [
   "I'm feeling unmotivated. What should I do?",
 ];
 
+/** Dev-mode (local server action) display cache: last N messages per user. */
+const DEV_HISTORY_LIMIT = 20;
+
+function devHistoryKey(uid: string): string {
+  return `habitiva.coachHistory:${uid}`;
+}
+
+function loadDevHistory(uid: string): Message[] {
+  try {
+    const raw = window.localStorage.getItem(devHistoryKey(uid));
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const valid: Message[] = [];
+    for (const item of parsed) {
+      if (
+        typeof item === "object" &&
+        item !== null &&
+        ((item as { role?: unknown }).role === "user" ||
+          (item as { role?: unknown }).role === "coach") &&
+        typeof (item as { content?: unknown }).content === "string" &&
+        (item as { content: string }).content.length > 0
+      ) {
+        valid.push({
+          role: (item as { role: "user" | "coach" }).role,
+          content: (item as { content: string }).content.slice(0, 1000),
+        });
+      }
+    }
+    return valid.slice(-DEV_HISTORY_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Conversational Habitiva Coach. Transport selection:
  * - backend URL + session token → production HTTPS transport (Bearer);
@@ -51,6 +87,8 @@ export function CoachChat({
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [devRestored, setDevRestored] = useState(false);
   const [error, setError] = useState("");
   const [backendUrl, setBackendUrl] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -92,6 +130,59 @@ export function CoachChat({
   const rateLimited = retryUntil > nowTick;
   // Backend configured but no session yet: invite sign-in before anything else.
   const showConnect = needsSignIn || (backendUrl !== null && token === null);
+
+  // Remote mode: restore the persisted conversation (server is the source of
+  // truth; identity comes from the session token, never from the client).
+  useEffect(() => {
+    if (!remoteMode || !backendUrl || !token) return;
+    let alive = true;
+    const current = token;
+    (async () => {
+      setHistoryLoading(true);
+      const result = await fetchCoachHistory(backendUrl, current);
+      if (!alive) return;
+      setHistoryLoading(false);
+      if (result.ok) {
+        setMessages(result.messages.map((m) => ({ role: m.role, content: m.content })));
+      } else if (result.code === "UNAUTHORIZED") {
+        await clearSessionToken();
+        setToken(null);
+        setNeedsSignIn(true);
+        setError("Your session expired. Please sign in to continue coaching.");
+      } else {
+        setError(result.error);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [remoteMode, backendUrl, token]);
+
+  // Dev mode: no server identity exists, so restore the display cache from
+  // local storage (display only — the server action still rebuilds all
+  // statistics server-side from the payload on every turn).
+  useEffect(() => {
+    if (!devMode) return;
+    let alive = true;
+    (async () => {
+      const restored = loadDevHistory(userId);
+      if (!alive) return;
+      setMessages(restored);
+      setDevRestored(true);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [devMode, userId]);
+
+  useEffect(() => {
+    if (!devMode || !devRestored) return;
+    try {
+      window.localStorage.setItem(devHistoryKey(userId), JSON.stringify(messages.slice(-DEV_HISTORY_LIMIT)));
+    } catch {
+      // storage is best-effort
+    }
+  }, [devMode, devRestored, userId, messages]);
 
   function grantLocalConsent() {
     try {
@@ -348,7 +439,7 @@ export function CoachChat({
             ))
           )}
 
-          {sending ? (
+          {sending || historyLoading ? (
             <div className="flex justify-start">
               <div className="flex items-center gap-2 rounded-3xl rounded-bl-lg border border-line bg-surface-2 px-4 py-3">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-muted" />

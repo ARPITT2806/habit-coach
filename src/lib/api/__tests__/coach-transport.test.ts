@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { getBackendUrl, setBackendUrlOverride } from "../backend-url";
 import {
+  fetchCoachHistory,
   parseRetryAfter,
   sendCoachTurn,
   grantRemoteConsent,
@@ -200,5 +201,70 @@ describe("coach transport", () => {
     const denied = await grantRemoteConsent("https://api.example.com", "tok");
     assert.equal(denied.ok, false);
     if (!denied.ok) assert.equal(denied.code, "UNAUTHORIZED");
+  });
+});
+
+describe("coach history restore", () => {
+  it("returns persisted messages in order", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () =>
+      jsonResponse(200, {
+        ok: true,
+        messages: [
+          { role: "user", content: "first", createdAt: "2026-09-10T10:00:00.000Z" },
+          { role: "coach", content: "reply", createdAt: "2026-09-10T10:00:05.000Z" },
+        ],
+      });
+    const result = await fetchCoachHistory("https://api.example.com", "tok");
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.deepEqual(result.messages, [
+        { role: "user", content: "first", createdAt: "2026-09-10T10:00:00.000Z" },
+        { role: "coach", content: "reply", createdAt: "2026-09-10T10:00:05.000Z" },
+      ]);
+    }
+  });
+
+  it("drops malformed items and truncates oversized content", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () =>
+      jsonResponse(200, {
+        ok: true,
+        messages: [
+          { role: "user", content: "x".repeat(1500), createdAt: "2026-09-10T10:00:00.000Z" },
+          { role: "hacker", content: "nope", createdAt: "2026-09-10T10:00:01.000Z" },
+          { role: "coach", content: 42, createdAt: "2026-09-10T10:00:02.000Z" },
+          null,
+        ],
+      });
+    const result = await fetchCoachHistory("https://api.example.com", "tok");
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.messages.length, 1);
+      assert.equal(result.messages[0]?.role, "user");
+      assert.equal(result.messages[0]?.content.length, 1000);
+    }
+  });
+
+  it("maps 401, malformed JSON, and offline distinctly", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => jsonResponse(401, { ok: false, code: "UNAUTHORIZED" });
+    const denied = await fetchCoachHistory("https://api.example.com", "tok");
+    assert.equal(denied.ok, false);
+    if (!denied.ok) assert.equal(denied.code, "UNAUTHORIZED");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => new Response("not json", { status: 200 });
+    const broken = await fetchCoachHistory("https://api.example.com", "tok");
+    assert.equal(broken.ok, false);
+    if (!broken.ok) assert.equal(broken.code, "UPSTREAM_ERROR");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => {
+      throw new TypeError("fetch failed");
+    };
+    const offline = await fetchCoachHistory("https://api.example.com", "tok");
+    assert.equal(offline.ok, false);
+    if (!offline.ok) assert.equal(offline.code, "OFFLINE");
   });
 });

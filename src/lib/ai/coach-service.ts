@@ -41,6 +41,12 @@ export type CompletionRow = {
   status: string;
 };
 
+export type PersistedMessage = {
+  role: "user" | "coach";
+  content: string;
+  createdAt: Date;
+};
+
 export type CoachStore = {
   verifyToken(token: string): Promise<{ id: string; email: string } | null>;
   loadUser(userId: string): Promise<{ id: string; aiConsentAt: Date | null } | null>;
@@ -48,6 +54,15 @@ export type CoachStore = {
   loadCompletions(userId: string): Promise<CompletionRow[]>;
   getUsage(userId: string, windowType: "hour" | "day", windowStart: Date): Promise<number>;
   addUsage(userId: string, windowType: "hour" | "day", windowStart: Date): Promise<void>;
+  /**
+   * Resolve the user's single Coach conversation, creating it on first use.
+   * Keyed ONLY by the authenticated userId — callers never supply an id,
+   * so one user can never address another user's conversation.
+   */
+  ensureConversation(userId: string): Promise<{ id: string }>;
+  /** Newest-last, bounded by `limit`. Roles outside user/coach are dropped. */
+  loadRecentMessages(conversationId: string, limit: number): Promise<PersistedMessage[]>;
+  saveMessage(conversationId: string, role: "user" | "coach", content: string): Promise<void>;
 };
 
 export type CoachLimits = {
@@ -57,6 +72,10 @@ export type CoachLimits = {
 
 export const MAX_MESSAGE_CHARS = 1000;
 export const MAX_HISTORY_TURNS = 10;
+/** AI context window: the last N persisted messages (pairs of user/coach turns). */
+export const CONTEXT_MESSAGE_LIMIT = MAX_HISTORY_TURNS * 2;
+/** Display/restore window for the history endpoint: bounded, never unbounded. */
+export const HISTORY_DISPLAY_LIMIT = 100;
 export const MAX_TURN_CHARS = 1000;
 
 /** Strict `Authorization: Bearer <token>` parsing. Anything else → null. */
@@ -90,12 +109,16 @@ function friendlyUpstreamError(message: string): string {
   return "The coach couldn't be reached just now. Check your connection and retry.";
 }
 
+/**
+ * One persisted Coach turn. History is loaded from the store (keyed ONLY by
+ * the authenticated userId) — the client never supplies conversation content
+ * for context, so it cannot forge, read, or pollute another user's history.
+ */
 export async function runCoachTurn(
   store: CoachStore,
   limits: CoachLimits,
   authHeader: string | null,
   message: unknown,
-  history: unknown,
   callModel: (
     context: Parameters<typeof chatWithCoach>[0],
     text: string,
@@ -122,24 +145,7 @@ export async function runCoachTurn(
   if (message.length > MAX_MESSAGE_CHARS) {
     return { ok: false, code: "BAD_REQUEST", error: "Keep questions under 1000 characters." };
   }
-  if (!Array.isArray(history) || history.length > MAX_HISTORY_TURNS) {
-    return { ok: false, code: "BAD_REQUEST", error: "Conversation history is too long." };
-  }
-  const turns: ChatTurn[] = [];
-  for (const turn of history) {
-    if (typeof turn !== "object" || turn === null) {
-      return { ok: false, code: "BAD_REQUEST", error: "Malformed conversation history." };
-    }
-    const role = (turn as { role?: unknown }).role;
-    const content = (turn as { content?: unknown }).content;
-    if ((role !== "user" && role !== "coach") || typeof content !== "string") {
-      return { ok: false, code: "BAD_REQUEST", error: "Malformed conversation history." };
-    }
-    if (content.length === 0 || content.length > MAX_TURN_CHARS) {
-      return { ok: false, code: "BAD_REQUEST", error: "Malformed conversation history." };
-    }
-    turns.push({ role, content });
-  }
+  const cleanMessage = message.trim().slice(0, MAX_MESSAGE_CHARS);
 
   const user = await store.loadUser(userId).catch(() => null);
   if (!user) {
@@ -181,10 +187,23 @@ export async function runCoachTurn(
     store.addUsage(userId, "day", dayStart),
   ]);
 
-  const [habitRows, completionRows] = await Promise.all([
+  const [habitRows, completionRows, conversation] = await Promise.all([
     store.loadHabits(userId),
     store.loadCompletions(userId),
+    store.ensureConversation(userId),
   ]);
+
+  // Server-side history: the model's context comes from persisted messages
+  // only — bounded, chronological, and impossible to forge from the client.
+  const persisted = await store.loadRecentMessages(conversation.id, CONTEXT_MESSAGE_LIMIT);
+  const turns: ChatTurn[] = [];
+  for (const row of persisted) {
+    if ((row.role === "user" || row.role === "coach") && row.content.length > 0) {
+      turns.push({ role: row.role, content: row.content.slice(0, MAX_TURN_CHARS) });
+    }
+  }
+
+  await store.saveMessage(conversation.id, "user", cleanMessage);
 
   const indexById = new Map(habitRows.map((habit, index) => [habit.id, index]));
   const habitInputs: CoachHabitInput[] = habitRows.map((habit) => ({
@@ -211,10 +230,11 @@ export async function runCoachTurn(
     };
   }
 
-  const outcome = await callModel(context, message, turns);
+  const outcome = await callModel(context, cleanMessage, turns);
   if (!outcome.ok) {
     return { ok: false, code: "UPSTREAM_ERROR", error: friendlyUpstreamError(outcome.error) };
   }
+  await store.saveMessage(conversation.id, "coach", outcome.reply);
   return {
     ok: true,
     message: outcome.reply,

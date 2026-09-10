@@ -162,6 +162,82 @@ export async function sendCoachTurn(
   return result;
 }
 
+export type CoachHistoryMessage = {
+  role: "user" | "coach";
+  content: string;
+  createdAt: string;
+};
+
+export type CoachHistoryResult =
+  | { ok: true; messages: CoachHistoryMessage[] }
+  | { ok: false; code: "UNAUTHORIZED" | "UPSTREAM_ERROR" | "OFFLINE" | "TIMEOUT"; error: string };
+
+/**
+ * Restore the authenticated user's persisted Coach conversation (newest last,
+ * server-bounded). Identity comes from the Bearer token only — there is no
+ * conversation id to forge.
+ */
+export async function fetchCoachHistory(
+  baseUrl: string,
+  token: string,
+  timeoutMs: number = COACH_TIMEOUT_MS,
+): Promise<CoachHistoryResult> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${baseUrl}/api/coach/history`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    window.clearTimeout(timer);
+    if (response.status === 401) {
+      return { ok: false, code: "UNAUTHORIZED", error: "Your session expired. Please sign in again." };
+    }
+    let payload: { ok?: unknown; messages?: unknown } = {};
+    try {
+      payload = (await response.json()) as typeof payload;
+    } catch {
+      return { ok: false, code: "UPSTREAM_ERROR", error: CODE_MESSAGES.UPSTREAM_ERROR };
+    }
+    if (response.ok && payload.ok === true && Array.isArray(payload.messages)) {
+      const messages: CoachHistoryMessage[] = [];
+      for (const item of payload.messages) {
+        if (
+          typeof item === "object" &&
+          item !== null &&
+          ((item as { role?: unknown }).role === "user" ||
+            (item as { role?: unknown }).role === "coach") &&
+          typeof (item as { content?: unknown }).content === "string" &&
+          typeof (item as { createdAt?: unknown }).createdAt === "string"
+        ) {
+          messages.push({
+            role: (item as { role: "user" | "coach" }).role,
+            content: (item as { content: string }).content.slice(0, 1000),
+            createdAt: (item as { createdAt: string }).createdAt,
+          });
+        }
+      }
+      return { ok: true, messages };
+    }
+    return { ok: false, code: "UPSTREAM_ERROR", error: CODE_MESSAGES.UPSTREAM_ERROR };
+  } catch (err) {
+    window.clearTimeout(timer);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return {
+        ok: false,
+        code: "TIMEOUT",
+        error: "The request timed out. Nothing was lost — retry when ready.",
+      };
+    }
+    return {
+      ok: false,
+      code: "OFFLINE",
+      error: "Could not reach the Habitiva server. AI coaching needs an internet connection.",
+    };
+  }
+}
+
 export async function grantRemoteConsent(
   baseUrl: string,
   token: string,
