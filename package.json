@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && prisma migrate deploy && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "node --test --experimental-loader ./src/lib/ai/__tests__/resolve-hook.mjs \"src/lib/__tests__/*.test.ts\" \"src/lib/*/__tests__/*.test.ts\"",
