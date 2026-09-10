@@ -253,3 +253,86 @@ export async function saveCheckInWeb(
   }
   return { ok: false, code: "UPSTREAM_ERROR", error: "Could not save check-in." };
 }
+
+export type NewHabitInput = {
+  title: string;
+  goalTitle?: string;
+  why?: string;
+  frequencyPerWeek: number;
+  preferredTime: string;
+  difficulty: string;
+};
+
+export type CreateHabitResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code: "UNAUTHORIZED" | "BAD_REQUEST" | "UPSTREAM_ERROR" | "OFFLINE" | "TIMEOUT";
+      error: string;
+    };
+
+/**
+ * Web habit creation. Same-origin POST — the session cookie identifies the
+ * user server-side; field validation, goal ensure/create, and persistence all
+ * happen in the existing server action. Only server-supported fields travel;
+ * device-only extras (consequence, important) have no server columns.
+ */
+export async function createHabitWeb(
+  input: NewHabitInput,
+  timeoutMs: number = WEB_TODAY_TIMEOUT_MS,
+): Promise<CreateHabitResult> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch("/api/web/habits", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: input.title,
+        ...(input.goalTitle !== undefined ? { goalTitle: input.goalTitle } : {}),
+        ...(input.why !== undefined ? { why: input.why } : {}),
+        frequencyPerWeek: input.frequencyPerWeek,
+        preferredTime: input.preferredTime,
+        difficulty: input.difficulty,
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    window.clearTimeout(timer);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return {
+        ok: false,
+        code: "TIMEOUT",
+        error: "Saving is taking too long. Check your connection and retry.",
+      };
+    }
+    return {
+      ok: false,
+      code: "OFFLINE",
+      error: "Could not reach the Habitiva server. Check your connection.",
+    };
+  }
+  window.clearTimeout(timer);
+
+  if (response.status === 401) {
+    return { ok: false, code: "UNAUTHORIZED", error: "Please sign in to create habits." };
+  }
+
+  let payload: { ok?: unknown; error?: unknown } = {};
+  try {
+    payload = (await response.json()) as typeof payload;
+  } catch {
+    return { ok: false, code: "UPSTREAM_ERROR", error: "Could not save habit." };
+  }
+
+  if (response.ok && payload.ok === true) return { ok: true };
+  if (response.status === 400) {
+    return {
+      ok: false,
+      code: "BAD_REQUEST",
+      error: typeof payload.error === "string" && payload.error ? payload.error : "Could not save habit.",
+    };
+  }
+  return { ok: false, code: "UPSTREAM_ERROR", error: "Could not save habit." };
+}

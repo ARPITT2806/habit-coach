@@ -11,6 +11,7 @@ import {
 import { fetchTodayData } from "../web-today";
 import { completeHabit } from "../web-today";
 import { saveCheckInWeb } from "../web-today";
+import { createHabitWeb } from "../web-today";
 
 // Minimal browser stand-ins for client modules under plain Node.
 const storage = new Map<string, string>();
@@ -451,6 +452,77 @@ describe("web check-in", () => {
       throw new TypeError("fetch failed");
     };
     const offline = await saveCheckInWeb(3);
+    assert.equal(offline.ok, false);
+    if (!offline.ok) assert.equal(offline.code, "OFFLINE");
+  });
+});
+
+describe("web habit creation", () => {
+  const valid = {
+    title: "Morning run",
+    goalTitle: "Get fit",
+    why: "Feel strong",
+    frequencyPerWeek: 5,
+    preferredTime: "07:00",
+    difficulty: "medium",
+  };
+
+  it("posts the form fields and reports success", async () => {
+    let seen: unknown;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      seen = { url: _url, body: JSON.parse(init.body) };
+      return jsonResponse(200, { ok: true });
+    };
+    const result = await createHabitWeb(valid);
+    assert.equal(result.ok, true);
+    assert.deepEqual(seen, { url: "/api/web/habits", body: valid });
+  });
+
+  it("omits empty optionals and surfaces server validation errors", async () => {
+    let seenBody: unknown;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      seenBody = JSON.parse(init.body);
+      return jsonResponse(400, { ok: false, code: "BAD_REQUEST", error: "Check the habit details and try again." });
+    };
+    const result = await createHabitWeb({
+      title: "x",
+      frequencyPerWeek: 3,
+      preferredTime: "08:00",
+      difficulty: "easy",
+    });
+    assert.equal(result.ok, false);
+    assert.deepEqual(seenBody, {
+      title: "x",
+      frequencyPerWeek: 3,
+      preferredTime: "08:00",
+      difficulty: "easy",
+    });
+    if (!result.ok) {
+      assert.equal(result.code, "BAD_REQUEST");
+      assert.equal(result.error, "Check the habit details and try again.");
+    }
+  });
+
+  it("maps 401, malformed JSON, and offline distinctly", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => jsonResponse(401, { ok: false, code: "UNAUTHORIZED" });
+    const denied = await createHabitWeb(valid);
+    assert.equal(denied.ok, false);
+    if (!denied.ok) assert.equal(denied.code, "UNAUTHORIZED");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => new Response("not json", { status: 200 });
+    const broken = await createHabitWeb(valid);
+    assert.equal(broken.ok, false);
+    if (!broken.ok) assert.equal(broken.code, "UPSTREAM_ERROR");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = async () => {
+      throw new TypeError("fetch failed");
+    };
+    const offline = await createHabitWeb(valid);
     assert.equal(offline.ok, false);
     if (!offline.ok) assert.equal(offline.code, "OFFLINE");
   });

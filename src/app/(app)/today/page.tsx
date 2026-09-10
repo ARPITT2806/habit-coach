@@ -50,7 +50,7 @@ import {
 } from "@/lib/local/habits";
 import { getLocalUser, type LocalUser } from "@/lib/local/session";
 import { isNativeApp } from "@/lib/local/database";
-import { completeHabit, fetchTodayData, saveCheckInWeb } from "@/lib/api/web-today";
+import { completeHabit, createHabitWeb, fetchTodayData, saveCheckInWeb } from "@/lib/api/web-today";
 import {
   exactAlarmsGranted,
   notificationPermissionGranted,
@@ -686,12 +686,15 @@ function CheckInCard({
 function AddHabit({
   user,
   readOnly,
+  serverCreate,
   onCreated,
   open,
   onOpenChange,
 }: {
   user: LocalUser;
   readOnly?: boolean;
+  /** Web server mode: create via the server action instead of local SQLite. */
+  serverCreate?: boolean;
   onCreated: () => Promise<void>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -701,7 +704,7 @@ function AddHabit({
   // Add Habit → Back returns to Today, never to the home screen.
   useModalBackHandler(open, () => onOpenChange(false));
 
-  if (readOnly) {
+  if (readOnly && !serverCreate) {
     return (
       <p className="mt-4 text-center text-xs leading-5 text-muted">
         Habit setup lives in the app for now — this view is read-only.
@@ -711,6 +714,23 @@ function AddHabit({
 
   async function submit(values: HabitFormValues) {
     try {
+      // Web: server creation (goal ensure + persistence in createHabit).
+      if (serverCreate) {
+        const result = await createHabitWeb({
+          title: values.title,
+          goalTitle: values.goalTitle || undefined,
+          why: values.why || undefined,
+          frequencyPerWeek: values.frequency,
+          preferredTime: values.preferredTime,
+          difficulty: values.difficulty,
+        });
+        if (!result.ok) throw new Error(result.error);
+        setFormKey((key) => key + 1);
+        onOpenChange(false);
+        await onCreated();
+        return;
+      }
+
       const goalId = await ensureGoalForHabit(user.id, values.goalTitle);
 
       await createHabit(habitFormToCreateInput(user.id, goalId, values));
@@ -1405,12 +1425,13 @@ function TodayContent() {
         <AddHabit
           user={user}
           readOnly={!nativeMode}
+          serverCreate={!nativeMode}
           onCreated={refresh}
           open={addOpen}
           onOpenChange={setAddOpen}
         />
 
-        {addOpen ? (
+        {addOpen && nativeMode ? (
           <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted">
             <ArrowIcon size={13} />
             Stored locally on this device only
